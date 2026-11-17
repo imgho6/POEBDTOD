@@ -5,6 +5,11 @@ on:
   # GitHub використовує UTC, але хвилини :15 та :45 не залежать від часового поясу Києва.
   schedule:
     - cron: "15,45 * * * *"
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/telegram-publisher.yml
   workflow_dispatch:
 
 permissions:
@@ -69,15 +74,15 @@ jobs:
         continue-on-error: true
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: "-1004464555562"
+          TELEGRAM_CHAT_ID: "@PoltavaLight"
         run: python scripts/telegram-schedules.py
 
       # Спочатку публікуємо зміни графіків, потім короткий прогноз.
       - name: Надіслати прогноз наступного півгодинного інтервалу
-        if: always() && steps.restore_cache.outcome == 'success' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        if: always() && steps.restore_cache.outcome == 'success' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push')
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: "-1004464555562"
+          TELEGRAM_CHAT_ID: "@PoltavaLight"
           TELEGRAM_BOUNDARY_ADVANCE_SECONDS: "900"
         run: python scripts/telegram-schedules.py --status-only
 
@@ -86,7 +91,7 @@ jobs:
         continue-on-error: true
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: "-1004464555562"
+          TELEGRAM_CHAT_ID: "@PoltavaLight"
         run: python scripts/telegram-editorial.py
 
       # Never clear the published cache after a failed refresh. If the refresh
