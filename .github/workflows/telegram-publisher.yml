@@ -70,7 +70,7 @@ jobs:
           cp -a /tmp/poltava-schedules-cache/. public/data/schedules/
 
       # Основне зображення графіка беремо безпосередньо з сайту poe-energy.pages.dev.
-# Перевіряємо, що графік справді завантажився, перш ніж робити скриншот.
+# Перевіряємо дату та завантаження SVG-графіка перед публікацією.
       # Не генеруємо власну картинку з JSON. Скриншот перевіряється прямою відправкою.
       - name: Встановити Playwright та Chromium
         if: steps.restore_cache.outcome == 'success'
