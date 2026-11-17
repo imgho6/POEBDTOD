@@ -69,7 +69,7 @@ jobs:
           mkdir -p public/data/schedules
           cp -a /tmp/poltava-schedules-cache/. public/data/schedules/
 
-      # Основне зображення графіка беремо безпосередньо з сайту користувача.
+      # Основне зображення графіка беремо безпосередньо з сайту poe-energy.pages.dev.
       # Не генеруємо власну картинку з JSON.
       - name: Встановити Playwright та Chromium
         if: steps.restore_cache.outcome == 'success'
