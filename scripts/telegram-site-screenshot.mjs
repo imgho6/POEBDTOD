@@ -9,8 +9,46 @@ const TOKEN = process.env.TELEGRAM_BOT_TOKEN
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID || '@PoltavaLight'
 const FORCE_SEND = process.env.TELEGRAM_FORCE_SEND === '1'
 const STATE_PATH = process.env.TELEGRAM_STATE_PATH || 'public/data/schedules/telegram-state.json'
+const POE_API_URL = 'https://www.poe.pl.ua/customs/newgpv-info.php'
 
 if (!TOKEN) throw new Error('TELEGRAM_BOT_TOKEN не задано')
+
+function kyivDateParts() {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Kyiv',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date())
+  return Object.fromEntries(parts.map((part) => [part.type, part.value]))
+}
+
+function kyivDateInputValue() {
+  const { year, month, day } = kyivDateParts()
+  return `${year}-${month}-${day}`
+}
+
+async function fetchOfficialScheduleHtml() {
+  const { year, month, day } = kyivDateParts()
+  const form = new FormData()
+  form.append('seldate', JSON.stringify({ date_in: `${day}-${month}-${year}` }))
+
+  const response = await fetch(POE_API_URL, {
+    method: 'POST',
+    headers: {
+      Origin: 'https://poe-energy.pages.dev',
+      Referer: SITE_URL,
+    },
+    body: form,
+    signal: AbortSignal.timeout(30000),
+  })
+  const html = await response.text()
+  console.log('Офіційний API графіків:', response.status, 'HTTP,', html.length, 'символів.')
+  if (!response.ok || !html.includes('gpvinfodetail')) {
+    throw new Error('Офіційний API Полтаваобленерго не повернув таблицю графіка.')
+  }
+  return html
+}
 
 async function loadState() {
   try {
@@ -28,6 +66,22 @@ async function main() {
       deviceScaleFactor: 1,
       locale: 'uk-UA',
       timezoneId: 'Europe/Kyiv',
+    })
+
+    // The website's own cross-origin POST may stall on CI egress. Fetch the exact
+    // official HTML server-side, then let the website's Vue/D3 code render it.
+    const officialHtml = await fetchOfficialScheduleHtml()
+    await page.route('**/customs/newgpv-info.php', async (route) => {
+      await route.fulfill({
+        status: 200,
+        headers: {
+          'content-type': 'text/html; charset=utf-8',
+          'access-control-allow-origin': 'https://poe-energy.pages.dev',
+          'access-control-allow-methods': 'POST, OPTIONS',
+          'access-control-allow-headers': '*',
+        },
+        body: officialHtml,
+      })
     })
 
     page.on('console', (message) => {
@@ -52,16 +106,7 @@ async function main() {
     await page.locator('body').waitFor({ state: 'visible', timeout: 15000 })
     // Сторінка відкривається з порожнім полем дати, тому графік ще не побудований.
     // Явно вибираємо поточну дату за київським часом.
-    const todayValue = await page.evaluate(() => {
-      const parts = new Intl.DateTimeFormat('en-GB', {
-        timeZone: 'Europe/Kyiv',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-      }).formatToParts(new Date())
-      const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
-      return `${values.year}-${values.month}-${values.day}`
-    })
+    const todayValue = kyivDateInputValue()
     const dateInput = page.locator('input[type="date"]').first()
     if (!(await dateInput.count())) {
       throw new Error('На сторінці не знайдено поле вибору дати.')
