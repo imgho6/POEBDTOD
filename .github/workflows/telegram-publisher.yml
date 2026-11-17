@@ -16,7 +16,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: telegram-publication-v3
+  group: telegram-publication-v4
   cancel-in-progress: true
 
 jobs:
