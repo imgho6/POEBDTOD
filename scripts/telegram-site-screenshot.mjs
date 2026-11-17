@@ -41,7 +41,7 @@ async function main() {
     await page.locator('body').waitFor({ state: 'visible', timeout: 15000 })
     // Сторінка може змінювати тексти/розмітку, тому не прив'язуємо
     // публікацію до конкретного заголовка, якого може не бути.
-    await page.waitForTimeout(10000)
+    await page.waitForTimeout(20000)
     const visibleText = (await page.locator('body').innerText()).trim()
     console.log('Сайт відкрився. Текст сторінки:', visibleText.slice(0, 500).replace(/\\s+/g, ' '))
     console.log('Довжина текстового шару:', visibleText.length, 'символів; продовжую робити скриншот.')
@@ -50,7 +50,7 @@ async function main() {
     // оновлення каналу беремо саме поточну добу.
     const today = page.getByText('Сьогодні', { exact: true }).first()
     if (await today.count()) await today.click({ timeout: 5000 }).catch(() => {})
-    await page.waitForTimeout(2500)
+    await page.waitForTimeout(15000)
 
     // Це скриншот самого сайту, а не перемальована з JSON копія графіка.
     const screenshot = await page.screenshot({
