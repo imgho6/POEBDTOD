@@ -66,7 +66,22 @@ async function main() {
     if (!(await dateInput.count())) {
       throw new Error('На сторінці не знайдено поле вибору дати.')
     }
+    page.on('request', (request) => {
+      if (['xhr', 'fetch'].includes(request.resourceType())) {
+        console.log('BROWSER_DATA_REQUEST:', request.method(), request.url())
+      }
+    })
+    page.on('response', async (result) => {
+      if (['xhr', 'fetch'].includes(result.request().resourceType())) {
+        const body = await result.text().catch(() => '')
+        console.log('BROWSER_DATA_RESPONSE:', result.status(), result.url(), body.slice(0, 1000))
+      }
+    })
+
     await dateInput.fill(todayValue)
+    await dateInput.dispatchEvent('input')
+    await dateInput.dispatchEvent('change')
+    await dateInput.press('Enter').catch(() => {})
     console.log('Вибрано дату графіка:', todayValue)
 
     // Чекаємо на SVG-графік або розгорнутий текстовий звіт, а не на прихований canvas для копіювання.
@@ -88,6 +103,10 @@ async function main() {
       canvasCount: document.querySelectorAll('canvas').length,
       svgCount: document.querySelectorAll('#app svg').length,
       tableCount: document.querySelectorAll('table').length,
+      dateInputHtml: document.querySelector('input[type="date"]')?.outerHTML ?? '',
+      inlineScripts: [...document.scripts].filter((script) => !script.src).map((script, index) => ({
+        index, type: script.type, length: script.textContent.length, text: script.textContent.slice(0, 12000),
+      })),
     }))
     const visibleText = diagnostics.text
     console.log('Діагностика графіка:', JSON.stringify(diagnostics))
