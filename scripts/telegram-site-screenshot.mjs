@@ -39,11 +39,14 @@ async function main() {
     }
 
     await page.locator('body').waitFor({ state: 'visible', timeout: 15000 })
-    await page.waitForFunction(() => {
-      const text = document.body?.innerText || ''
-      return text.includes('Точно як у Полтаваобленерго') || text.includes('Текстовий звіт')
-    }, null, { timeout: 45000 })
-    console.log('Сайт відкрився, блоки графіка завантажені.')
+    // Сторінка може змінювати тексти/розмітку, тому не прив'язуємо
+    // публікацію до конкретного заголовка, якого може не бути.
+    await page.waitForTimeout(10000)
+    const visibleText = (await page.locator('body').innerText()).trim()
+    console.log('Сайт відкрився. Текст сторінки:', visibleText.slice(0, 500).replace(/\\s+/g, ' '))
+    if (visibleText.length < 80) {
+      throw new Error('Сторінка графіків не завантажила вміст; скриншот не надсилаю.')
+    }
 
     // На сайті є перемикачі «Завтра» та «Сьогодні». Для оперативного
     // оновлення каналу беремо саме поточну добу.
