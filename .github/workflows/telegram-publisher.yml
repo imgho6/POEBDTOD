@@ -80,7 +80,7 @@ jobs:
 
       # Спочатку публікуємо зміни графіків, потім короткий прогноз.
       - name: Надіслати прогноз наступного півгодинного інтервалу
-        if: always() && steps.restore_cache.outcome == 'success' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        if: always() && steps.restore_cache.outcome == 'success' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push')
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: "-1004464555562"
