@@ -82,7 +82,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: "@PoltavaLight"
-          TELEGRAM_FORCE_SEND: ${{ github.event_name == 'push' && github.event.head_commit.message == 'test: send schedule screenshot' && '1' || '0' }}
+          TELEGRAM_FORCE_SEND: "${{ github.event_name == 'push' && github.event.head_commit.message == 'test: send schedule screenshot' && '1' || '0' }}"
         run: node scripts/telegram-site-screenshot.mjs
 
       - name: Надіслати прогноз наступного півгодинного інтервалу
