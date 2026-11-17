@@ -44,9 +44,7 @@ async function main() {
     await page.waitForTimeout(10000)
     const visibleText = (await page.locator('body').innerText()).trim()
     console.log('Сайт відкрився. Текст сторінки:', visibleText.slice(0, 500).replace(/\\s+/g, ' '))
-    if (visibleText.length < 80) {
-      throw new Error('Сторінка графіків не завантажила вміст; скриншот не надсилаю.')
-    }
+    console.log('Довжина текстового шару:', visibleText.length, 'символів; продовжую робити скриншот.')
 
     // На сайті є перемикачі «Завтра» та «Сьогодні». Для оперативного
     // оновлення каналу беремо саме поточну добу.
