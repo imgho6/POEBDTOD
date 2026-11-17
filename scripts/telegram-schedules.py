@@ -14,7 +14,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path("public/data/schedules")
 STATE_PATH = Path(os.environ.get("TELEGRAM_STATE_PATH", str(ROOT / "telegram-state.json")))
-CHANNEL_ID = os.environ.get("TELEGRAM_CHAT_ID", "-1004464555562")
+CHANNEL_ID = os.environ.get("TELEGRAM_CHAT_ID", "@PoltavaLight")
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 KYIV = ZoneInfo("Europe/Kyiv")
 WIDTH = 1400
