@@ -50,42 +50,52 @@ async function main() {
     }
 
     await page.locator('body').waitFor({ state: 'visible', timeout: 15000 })
-    // Чекаємо саме на змонтований графік, а не на оболонку з двома кнопками.
+    // Сторінка відкривається з порожнім полем дати, тому графік ще не побудований.
+    // Явно вибираємо поточну дату за київським часом.
+    const todayValue = await page.evaluate(() => {
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Europe/Kyiv',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).formatToParts(new Date())
+      const values = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+      return `${values.year}-${values.month}-${values.day}`
+    })
+    const dateInput = page.locator('input[type="date"]').first()
+    if (!(await dateInput.count())) {
+      throw new Error('На сторінці не знайдено поле вибору дати.')
+    }
+    await dateInput.fill(todayValue)
+    console.log('Вибрано дату графіка:', todayValue)
+
+    // Чекаємо на SVG-графік або розгорнутий текстовий звіт, а не на прихований canvas для копіювання.
     await page.waitForFunction(() => {
       const body = document.body?.innerText?.trim() ?? ''
       const html = document.body?.innerHTML ?? ''
       const hasTemplatePlaceholders = /\\{\\{\\s*[^}]+\\}\\}/.test(html)
-      const hasChartContent = body.length > 250 || document.querySelectorAll('canvas, svg, table').length > 0
+      const hasChartContent = document.querySelectorAll('#app svg').length > 0 ||
+        (body.length > 250 && /Текстовий звіт|Графік/.test(body))
       return !hasTemplatePlaceholders && hasChartContent
     }, { timeout: 60000 }).catch(() => {})
 
     const diagnostics = await page.evaluate(() => ({
       text: (document.body?.innerText ?? '').trim(),
       htmlLength: document.documentElement?.outerHTML.length ?? 0,
+      selectedDate: document.querySelector('input[type="date"]')?.value ?? '',
       scriptSources: [...document.scripts].map((script) => script.src || '[inline]'),
       failedTemplate: /\\{\\{\\s*[^}]+\\}\\}/.test(document.body?.innerHTML ?? ''),
       canvasCount: document.querySelectorAll('canvas').length,
-      svgCount: document.querySelectorAll('svg').length,
+      svgCount: document.querySelectorAll('#app svg').length,
       tableCount: document.querySelectorAll('table').length,
-      bodyHtml: (document.body?.innerHTML ?? '').slice(0, 2500),
     }))
     const visibleText = diagnostics.text
-    console.log('Діагностика сторінки:', JSON.stringify(diagnostics))
-    if (visibleText.length < 200 && diagnostics.canvasCount + diagnostics.svgCount + diagnostics.tableCount === 0) {
-      throw new Error('Графік не завантажився: сторінка містить лише оболонку без даних. Скриншот не надсилатиму.')
+    console.log('Діагностика графіка:', JSON.stringify(diagnostics))
+    if (diagnostics.svgCount === 0 && visibleText.length < 200) {
+      throw new Error('Сайт не побудував графік для вибраної дати. Скриншот не надсилатиму.')
     }
-
-    // На сайті є перемикачі «Завтра» та «Сьогодні». Для оперативного
-    // оновлення каналу беремо саме поточну добу.
-    const today = page.getByText('Сьогодні', { exact: true }).first()
-    if (await today.count()) await today.click({ timeout: 5000 }).catch(() => {})
-    await page.waitForTimeout(3000)
-
-    const finalText = (await page.locator('body').innerText()).trim()
-    if (finalText.length < 200) {
-      throw new Error('Після перемикання на «Сьогодні» графік не відобразився. Скриншот не надсилатиму.')
-    }
-    console.log('Готовий графік:', finalText.length, 'символів тексту.')
+    console.log('Графік завантажено:', visibleText.length, 'символів тексту, SVG:', diagnostics.svgCount)
+    await page.waitForTimeout(2000)
 
     // Це скриншот самого сайту, а не перемальована з JSON копія графіка.
     const screenshot = await page.screenshot({
