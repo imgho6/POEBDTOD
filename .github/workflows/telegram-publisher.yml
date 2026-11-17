@@ -5,12 +5,6 @@ on:
   # GitHub використовує UTC, але хвилини :15 та :45 не залежать від часового поясу Києва.
   schedule:
     - cron: "15,45 * * * *"
-  # Запуск при зміні самого workflow потрібен для негайної перевірки конфігурації.
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/telegram-publisher.yml
   workflow_dispatch:
 
 permissions:
@@ -80,7 +74,7 @@ jobs:
 
       # Спочатку публікуємо зміни графіків, потім короткий прогноз.
       - name: Надіслати прогноз наступного півгодинного інтервалу
-        if: always() && steps.restore_cache.outcome == 'success' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push')
+        if: always() && steps.restore_cache.outcome == 'success' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: "-1004464555562"
