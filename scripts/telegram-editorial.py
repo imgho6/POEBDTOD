@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 
 ROOT = Path("public/data/schedules")
 STATE_PATH = Path(os.environ.get("TELEGRAM_STATE_PATH", str(ROOT / "telegram-state.json")))
-CHANNEL_ID = os.environ.get("TELEGRAM_CHAT_ID", "-1004464555562")
+CHANNEL_ID = os.environ.get("TELEGRAM_CHAT_ID", "@PoltavaLight")
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 KYIV = ZoneInfo("Europe/Kyiv")
 USER_AGENT = "Mozilla/5.0 (compatible; PoltavaLightBot/1.0; +https://svitlo-ua.vercel.app)"
