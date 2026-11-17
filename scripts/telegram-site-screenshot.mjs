@@ -56,6 +56,17 @@ async function main() {
 
     await page.locator('body').waitFor({ state: 'visible', timeout: 15000 })
 
+    // Сайт може не завантажувати графік автоматично після відкриття.
+    // Явно натискаємо його власну кнопку «Сьогодні», щоб запустити штатне
+    // завантаження даних і побудову графіків самим сайтом.
+    const todayButton = page.getByRole('button', { name: /Сьогодні/i }).first()
+    if (await todayButton.count()) {
+      await todayButton.click({ timeout: 10000 })
+      console.log('Натиснуто штатну кнопку «Сьогодні» на poe-energy.pages.dev.')
+    } else {
+      console.log('Кнопку «Сьогодні» не знайдено; перевіряю автоматичне завантаження сайту.')
+    }
+
     let siteDataResponse
     try {
       siteDataResponse = await siteDataResponsePromise
