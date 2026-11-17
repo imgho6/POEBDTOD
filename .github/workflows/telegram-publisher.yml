@@ -1,6 +1,16 @@
 name: Telegram – графіки та прогнози
 
 on:
+  # Автоматичний запуск за 15 хв до кожної півгодинної межі.
+  # GitHub використовує UTC, але хвилини :15 та :45 не залежать від часового поясу Києва.
+  schedule:
+    - cron: "15,45 * * * *"
+  # Запуск при зміні самого workflow потрібен для негайної перевірки конфігурації.
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/telegram-publisher.yml
   workflow_dispatch:
 
 permissions:
