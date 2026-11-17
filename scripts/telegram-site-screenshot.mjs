@@ -30,6 +30,17 @@ async function main() {
       timezoneId: 'Europe/Kyiv',
     })
 
+    page.on('console', (message) => {
+      if (message.type() === 'error') console.log('BROWSER_CONSOLE_ERROR:', message.text())
+    })
+    page.on('pageerror', (error) => console.log('BROWSER_PAGE_ERROR:', error.message))
+    page.on('requestfailed', (request) => {
+      console.log('BROWSER_REQUEST_FAILED:', request.url(), request.failure()?.errorText ?? 'unknown')
+    })
+    page.on('response', (result) => {
+      if (result.status() >= 400) console.log('BROWSER_HTTP_ERROR:', result.status(), result.url())
+    })
+
     const response = await page.goto(SITE_URL, {
       waitUntil: 'domcontentloaded',
       timeout: 60000,
@@ -39,18 +50,42 @@ async function main() {
     }
 
     await page.locator('body').waitFor({ state: 'visible', timeout: 15000 })
-    // Сторінка може змінювати тексти/розмітку, тому не прив'язуємо
-    // публікацію до конкретного заголовка, якого може не бути.
-    await page.waitForTimeout(20000)
-    const visibleText = (await page.locator('body').innerText()).trim()
-    console.log('Сайт відкрився. Текст сторінки:', visibleText.slice(0, 500).replace(/\\s+/g, ' '))
-    console.log('Довжина текстового шару:', visibleText.length, 'символів; продовжую робити скриншот.')
+    // Чекаємо саме на змонтований графік, а не на оболонку з двома кнопками.
+    await page.waitForFunction(() => {
+      const body = document.body?.innerText?.trim() ?? ''
+      const html = document.body?.innerHTML ?? ''
+      const hasTemplatePlaceholders = /\\{\\{\\s*[^}]+\\}\\}/.test(html)
+      const hasChartContent = body.length > 250 || document.querySelectorAll('canvas, svg, table').length > 0
+      return !hasTemplatePlaceholders && hasChartContent
+    }, { timeout: 60000 }).catch(() => {})
+
+    const diagnostics = await page.evaluate(() => ({
+      text: (document.body?.innerText ?? '').trim(),
+      htmlLength: document.documentElement?.outerHTML.length ?? 0,
+      scriptSources: [...document.scripts].map((script) => script.src || '[inline]'),
+      failedTemplate: /\\{\\{\\s*[^}]+\\}\\}/.test(document.body?.innerHTML ?? ''),
+      canvasCount: document.querySelectorAll('canvas').length,
+      svgCount: document.querySelectorAll('svg').length,
+      tableCount: document.querySelectorAll('table').length,
+      bodyHtml: (document.body?.innerHTML ?? '').slice(0, 2500),
+    }))
+    const visibleText = diagnostics.text
+    console.log('Діагностика сторінки:', JSON.stringify(diagnostics))
+    if (visibleText.length < 200 && diagnostics.canvasCount + diagnostics.svgCount + diagnostics.tableCount === 0) {
+      throw new Error('Графік не завантажився: сторінка містить лише оболонку без даних. Скриншот не надсилатиму.')
+    }
 
     // На сайті є перемикачі «Завтра» та «Сьогодні». Для оперативного
     // оновлення каналу беремо саме поточну добу.
     const today = page.getByText('Сьогодні', { exact: true }).first()
     if (await today.count()) await today.click({ timeout: 5000 }).catch(() => {})
-    await page.waitForTimeout(15000)
+    await page.waitForTimeout(3000)
+
+    const finalText = (await page.locator('body').innerText()).trim()
+    if (finalText.length < 200) {
+      throw new Error('Після перемикання на «Сьогодні» графік не відобразився. Скриншот не надсилатиму.')
+    }
+    console.log('Готовий графік:', finalText.length, 'символів тексту.')
 
     // Це скриншот самого сайту, а не перемальована з JSON копія графіка.
     const screenshot = await page.screenshot({
