@@ -38,16 +38,18 @@ async function main() {
       throw new Error('Сайт графіків повернув HTTP ' + (response?.status() ?? 'невідомо'))
     }
 
-    await page.getByText('Точно як у Полтаваобленерго', { exact: true }).first().waitFor({
-      state: 'visible',
-      timeout: 45000,
-    })
+    await page.locator('body').waitFor({ state: 'visible', timeout: 15000 })
+    await page.waitForFunction(() => {
+      const text = document.body?.innerText || ''
+      return text.includes('Точно як у Полтаваобленерго') || text.includes('Текстовий звіт')
+    }, null, { timeout: 45000 })
+    console.log('Сайт відкрився, блоки графіка завантажені.')
 
     // На сайті є перемикачі «Завтра» та «Сьогодні». Для оперативного
     // оновлення каналу беремо саме поточну добу.
     const today = page.getByText('Сьогодні', { exact: true }).first()
-    await today.click({ timeout: 5000 }).catch(() => {})
-    await page.waitForTimeout(1800)
+    if (await today.count()) await today.click({ timeout: 5000 }).catch(() => {})
+    await page.waitForTimeout(2500)
 
     // Це скриншот самого сайту, а не перемальована з JSON копія графіка.
     const screenshot = await page.screenshot({
@@ -57,6 +59,7 @@ async function main() {
       animations: 'disabled',
     })
 
+    console.log('Скриншот сформовано:', Math.round(screenshot.length / 1024), 'КБ.')
     const digest = createHash('sha256').update(screenshot).digest('hex')
     const state = await loadState()
     if (!FORCE_SEND && state.siteScreenshotHash === digest) {
