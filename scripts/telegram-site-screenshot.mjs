@@ -7,6 +7,7 @@ import { chromium } from 'playwright'
 const SITE_URL = 'https://poe-energy.pages.dev/'
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN
 const CHAT_ID = process.env.TELEGRAM_CHAT_ID || '@PoltavaLight'
+const FORCE_SEND = process.env.TELEGRAM_FORCE_SEND === '1'
 const STATE_PATH = process.env.TELEGRAM_STATE_PATH || 'public/data/schedules/telegram-state.json'
 
 if (!TOKEN) throw new Error('TELEGRAM_BOT_TOKEN не задано')
@@ -58,14 +59,14 @@ async function main() {
 
     const digest = createHash('sha256').update(screenshot).digest('hex')
     const state = await loadState()
-    if (state.siteScreenshotHash === digest) {
+    if (!FORCE_SEND && state.siteScreenshotHash === digest) {
       console.log('Скріншот poe-energy.pages.dev не змінився; повторне повідомлення не потрібне.')
       return
     }
 
     const form = new FormData()
     form.append('chat_id', CHAT_ID)
-    form.append('caption', '⚡ Оновлений графік погодинних відключень')
+    form.append('caption', FORCE_SEND ? '🧪 ТЕСТОВЕ ОНОВЛЕННЯ ГРАФІКА · перевірка скриншота сайту' : '⚡ Оновлений графік погодинних відключень')
     form.append('photo', new Blob([screenshot], { type: 'image/jpeg' }), 'poe-energy-schedule.jpg')
 
     const telegramResponse = await fetch(`https://api.telegram.org/bot${TOKEN}/sendPhoto`, {
@@ -82,7 +83,7 @@ async function main() {
     state.siteScreenshotSentAt = new Date().toISOString()
     await mkdir(dirname(STATE_PATH), { recursive: true })
     await writeFile(STATE_PATH, JSON.stringify(state, null, 2) + '\n', 'utf8')
-    console.log('Telegram: актуальний скриншот poe-energy.pages.dev успішно надіслано.')
+    console.log(FORCE_SEND ? 'Telegram: тестовий скриншот poe-energy.pages.dev успішно надіслано.' : 'Telegram: актуальний скриншот poe-energy.pages.dev успішно надіслано.')
   } finally {
     await browser.close()
   }
