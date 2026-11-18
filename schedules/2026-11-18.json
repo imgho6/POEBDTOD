@@ -1,6 +1,6 @@
 {
   "date": "2026-11-18",
-  "fetchedAt": "2026-11-18T18:35:50.133Z",
+  "fetchedAt": "2026-11-18T19:11:23.248Z",
   "queues": {
     "1.1": [
       "off",
@@ -97,8 +97,8 @@
       "off",
       "off",
       "off",
-      "off",
       "switching",
+      "on",
       "on",
       "on"
     ],
@@ -148,8 +148,8 @@
       "off",
       "off",
       "off",
-      "off",
       "switching",
+      "on",
       "on"
     ],
     "2.2": [
@@ -199,8 +199,8 @@
       "off",
       "off",
       "off",
-      "off",
-      "switching"
+      "switching",
+      "on"
     ],
     "3.1": [
       "on",
@@ -250,7 +250,7 @@
       "off",
       "off",
       "off",
-      "off"
+      "switching"
     ],
     "3.2": [
       "on",
