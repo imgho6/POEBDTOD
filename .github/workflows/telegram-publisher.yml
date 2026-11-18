@@ -10,7 +10,7 @@ on:
       - main
     paths:
       - .github/workflows/telegram-publisher.yml
-      - scripts/telegram-site-screenshot.mjs
+      - scripts/telegram-schedules.py
   workflow_dispatch:
 
 permissions:
@@ -70,21 +70,12 @@ jobs:
           mkdir -p public/data/schedules
           cp -a /tmp/poltava-schedules-cache/. public/data/schedules/
 
-      # Скриншот робиться з poe-energy.pages.dev після того, як сам сайт
-      # отримає свої дані та намалює SVG-графіки для всіх 12 черг.
-      - name: Встановити Playwright та Chromium
-        if: steps.restore_cache.outcome == 'success'
-        run: |
-          npm install --no-save --no-package-lock playwright
-          npx playwright install --with-deps chromium
-
-      - name: Зробити скриншот сайту та надіслати графік у Telegram
-        if: steps.restore_cache.outcome == 'success'
+      - name: Повідомити канал про оновлення графіка
+        if: steps.restore_cache.outcome == 'success' && steps.refresh.outcome == 'success'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: "@PoltavaLight"
-          TELEGRAM_FORCE_SEND: "${{ github.event_name == 'push' && github.event.head_commit.message == 'test: screenshot poe-energy site' && '1' || '0' }}"
-        run: node scripts/telegram-site-screenshot.mjs
+        run: python scripts/telegram-schedules.py
 
       - name: Надіслати прогноз наступного півгодинного інтервалу
         if: always() && steps.restore_cache.outcome == 'success' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
