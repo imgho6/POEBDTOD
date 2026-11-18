@@ -157,10 +157,6 @@ class StatusTargetTests(unittest.TestCase):
             self.at(12, 0),
         )
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ScheduleUpdateNotificationTests(unittest.TestCase):
     def test_update_message_describes_change_without_mentioning_an_image(self):
         previous = {"1.1": ["on"] * 48}
@@ -198,3 +194,7 @@ class ScheduleUpdateNotificationTests(unittest.TestCase):
             payload["reply_markup"]["inline_keyboard"][0][0]["text"],
             "⚡ Переглянути графік",
         )
+
+
+if __name__ == "__main__":
+    unittest.main()
