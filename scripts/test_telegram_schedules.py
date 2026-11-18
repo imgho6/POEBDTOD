@@ -159,3 +159,42 @@ class StatusTargetTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ScheduleUpdateNotificationTests(unittest.TestCase):
+    def test_update_message_describes_change_without_mentioning_an_image(self):
+        previous = {"1.1": ["on"] * 48}
+        current = {"1.1": ["off"] * 48}
+        message = MODULE.build_caption(
+            "2026-11-15", "today", previous, current
+        )
+        self.assertIn("Оновлено графік погодинних відключень", message)
+        self.assertIn("1.1", message)
+        self.assertNotIn("зображенні", message)
+
+    def test_first_schedule_publication_is_announced(self):
+        message = MODULE.build_caption(
+            "2026-11-15", "tomorrow", None, {"1.1": ["on"] * 48}
+        )
+        self.assertIn("Опубліковано графік", message)
+        self.assertIn("на завтра", message)
+
+    def test_update_notification_contains_inline_button_to_site(self):
+        with (
+            patch.object(MODULE, "TOKEN", "test-token"),
+            patch.object(MODULE, "CHANNEL_ID", "@PoltavaLight"),
+            patch.object(MODULE, "SITE_URL", "https://svitlo-ua.vercel.app/poltava"),
+            patch.object(MODULE, "telegram_request", return_value={"ok": True}) as telegram,
+        ):
+            MODULE.send_schedule_update("🔄 Оновлено графік")
+
+        request_payload = telegram.call_args.args[1]
+        payload = __import__("json").loads(request_payload.decode("utf-8"))
+        self.assertEqual(
+            payload["reply_markup"]["inline_keyboard"][0][0]["url"],
+            "https://svitlo-ua.vercel.app/poltava",
+        )
+        self.assertEqual(
+            payload["reply_markup"]["inline_keyboard"][0][0]["text"],
+            "⚡ Переглянути графік",
+        )
