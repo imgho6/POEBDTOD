@@ -16,6 +16,7 @@ ROOT = Path("public/data/schedules")
 STATE_PATH = Path(os.environ.get("TELEGRAM_STATE_PATH", str(ROOT / "telegram-state.json")))
 CHANNEL_ID = os.environ.get("TELEGRAM_CHAT_ID", "@PoltavaLight")
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+SITE_URL = "https://svitlo-ua.vercel.app/poltava"
 KYIV = ZoneInfo("Europe/Kyiv")
 WIDTH = 1400
 ROW_HEIGHT = 42
@@ -428,13 +429,16 @@ def compare_queues(previous, current):
 def build_caption(date_key, kind, previous, current):
     date_obj = datetime.strptime(date_key, "%Y-%m-%d").replace(tzinfo=KYIV)
     date_label = date_obj.strftime("%d.%m.%Y")
+    period = "на завтра" if kind == "tomorrow" else "на сьогодні"
+
     if previous is None:
-        if kind == "tomorrow":
-            return f"📅 Опубліковано графік на завтра — {date_label}.\nУсі 12 підчерг Полтавської області на одному зображенні."
-        return f"⚡ Графік на сьогодні — {date_label}.\nУсі 12 підчерг Полтавської області на одному зображенні."
+        return (
+            f"🆕 Опубліковано графік погодинних відключень {period} — {date_label}.\n\n"
+            "Перегляньте актуальний графік для своєї черги на нашому сайті."
+        )
 
     increased, decreased, shifted = compare_queues(previous, current)
-    lines = [f"🔄 Оновлено графік {'на завтра' if kind == 'tomorrow' else 'на сьогодні'} — {date_label}."]
+    lines = [f"🔄 Оновлено графік погодинних відключень {period} — {date_label}."]
     if decreased:
         queues = ", ".join(item.split(" (", 1)[0] for item in decreased)
         lines.append(f"🟢 Для черг {queues} — зменшили відключення.")
@@ -444,7 +448,8 @@ def build_caption(date_key, kind, previous, current):
     if shifted:
         lines.append("🕒 Для черг " + ", ".join(shifted) + " — змінилися години відключень.")
     if len(lines) == 1:
-        lines.append("Основні години вимкнень залишилися без змін.")
+        lines.append("Час відключень для черг не змінився.")
+    lines.extend(["", "Актуальний графік для всіх черг доступний на нашому сайті."])
     return "\n".join(lines)
 
 def initialize_status_timing(state):
@@ -772,14 +777,12 @@ def send_test_messages(schedule, state, now):
         save_state(state)
 
     if not test_state.get("scheduleSent"):
-        image = make_image(schedule, "today")
-        send_photo(
-            image,
-            "🧪 ТЕСТ: перевірка надсилання графіка відключень. Це тестова публікація.",
+        send_schedule_update(
+            "🧪 ТЕСТ: повідомлення про оновлення графіка. Нижче є кнопка переходу на сайт."
         )
         test_state["scheduleSent"] = True
         save_state(state)
-        print("Telegram: обидва тестові повідомлення надіслано")
+        print("Telegram: тестові повідомлення надіслано")
 
 
 
@@ -852,6 +855,31 @@ def build_hourly_message(schedule, now):
         + '<a href="https://energy-ua.info/">Energy-UA</a>.'
         + "\n\n<a href=\"https://t.me/+Wk2HBi5w2UJmYThi\">Energy-UA⚡️Полтава</a>"
     )
+
+def send_schedule_update(message):
+    """Надсилає повідомлення про зміну графіка з кнопкою на сайт."""
+    payload = json.dumps({
+        "chat_id": CHANNEL_ID,
+        "text": message,
+        "disable_web_page_preview": True,
+        "reply_markup": {
+            "inline_keyboard": [[
+                {
+                    "text": "⚡ Переглянути графік",
+                    "url": SITE_URL,
+                }
+            ]]
+        },
+    }).encode("utf-8")
+    telegram_request(
+        f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+        payload,
+        {"Content-Type": "application/json"},
+        "Повідомлення про оновлення графіка",
+        timeout=35,
+    )
+    print("Telegram: повідомлення про оновлення графіка успішно надіслано")
+
 
 def send_message(message):
     payload = json.dumps({
@@ -940,12 +968,11 @@ def main():
             print(f"{date_key}: без змін")
             continue
         previous_queues = previous_entry.get("queues") if previous_entry else None
-        caption = build_caption(date_key, kind, previous_queues, queues)
-        image = make_image(schedule, kind, previous_queues)
+        message = build_caption(date_key, kind, previous_queues, queues)
         try:
-            send_photo(image, caption)
+            send_schedule_update(message)
         except Exception as error:
-            print(f"Не вдалося надіслати графік {date_key}: {error}", file=sys.stderr)
+            print(f"Не вдалося надіслати повідомлення про графік {date_key}: {error}", file=sys.stderr)
             raise
         entries[date_key] = {"hash": digest, "queues": queues, "kind": kind, "sentAt": now.isoformat()}
         save_state(state)
