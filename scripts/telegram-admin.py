@@ -108,6 +108,42 @@ def back_keyboard():
     return {"inline_keyboard": [[{"text": "⬅️ До головної панелі", "callback_data": "menu"}]]}
 
 
+POST_TEMPLATES = {
+    "schedule": ("📊 Оновлення графіка", "📊 <b>Оновлення графіка відключень</b>\n\nОпубліковано актуальний графік для Полтавщини.\n\n🔗 Деталі: "),
+    "alert": ("🚨 Термінове повідомлення", "🚨 <b>Увага!</b>\n\n[Текст повідомлення]\n\nСтежте за оновленнями."),
+    "news": ("📰 Новина", "📰 <b>[Заголовок]</b>\n\n[Текст новини]\n\n🔗 Детальніше: "),
+    "notice": ("📢 Оголошення", "📢 <b>Оголошення</b>\n\n[Текст оголошення]"),
+}
+
+
+def post_creation_keyboard():
+    return {"inline_keyboard": [
+        [{"text": "✍️ Написати з нуля", "callback_data": "post:blank"}],
+        [{"text": "📊 Графік", "callback_data": "post:template:schedule"}, {"text": "🚨 Терміново", "callback_data": "post:template:alert"}],
+        [{"text": "📰 Новина", "callback_data": "post:template:news"}, {"text": "📢 Оголошення", "callback_data": "post:template:notice"}],
+        [{"text": "♻️ На основі останнього допису", "callback_data": "post:copy"}],
+        [{"text": "⬅️ До панелі", "callback_data": "menu"}],
+    ]}
+
+
+def draft_keyboard():
+    return {"inline_keyboard": [
+        [{"text": "🚀 Опублікувати зараз", "callback_data": "draft:now"}],
+        [{"text": "🗓 Запланувати", "callback_data": "draft:schedule"}],
+        [{"text": "✏️ Редагувати текст", "callback_data": "draft:edit"}, {"text": "❌ Скасувати", "callback_data": "draft:cancel"}],
+    ]}
+
+
+def quick_schedule_keyboard():
+    return {"inline_keyboard": [
+        [{"text": "Через 1 годину", "callback_data": "schedule:1h"}],
+        [{"text": "Сьогодні о 20:00", "callback_data": "schedule:today20"}],
+        [{"text": "Завтра о 09:00", "callback_data": "schedule:tomorrow09"}],
+        [{"text": "Ввести дату й час", "callback_data": "schedule:custom"}],
+        [{"text": "⬅️ Назад до чернетки", "callback_data": "draft:back"}],
+    ]}
+
+
 def format_local(value):
     if not value:
         return "невідомо"
@@ -326,8 +362,28 @@ def process_callback(update):
         elif data == "config":
             telegram("editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": config_text(conn), "parse_mode": "HTML", "reply_markup": back_keyboard()})
         elif data == "compose":
+            telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "<b>Створення допису</b>\n\nОбери спосіб підготовки публікації:", "parse_mode": "HTML", "reply_markup": post_creation_keyboard()})
+        elif data == "post:blank":
             set_session(conn, "awaiting_text")
-            telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Надішли текст допису для каналу @PoltavaLight. Перед публікацією покажу попередній перегляд."})
+            telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Надішли текст допису. Після цього зможеш відредагувати його, опублікувати або запланувати."})
+        elif data.startswith("post:template:"):
+            key = data.split(":")[-1]
+            template = POST_TEMPLATES.get(key)
+            if not template:
+                return
+            set_session(conn, "confirm_draft", template[1])
+            telegram("sendMessage", {"chat_id": ADMIN_ID, "text": f"<b>{html.escape(template[0])}</b>\n\n{template[1]}\n\nЗаміни текст у шаблоні кнопкою редагування.", "parse_mode": "HTML", "reply_markup": draft_keyboard()})
+        elif data == "post:copy":
+            previous = conn.execute("""
+                SELECT body FROM bot_publications
+                WHERE chat_id = %s AND deleted_at IS NULL AND body IS NOT NULL AND body <> ''
+                ORDER BY published_at DESC LIMIT 1
+            """, (PUBLIC_CHANNEL,)).fetchone()
+            if not previous:
+                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "У базі ще немає допису, який можна взяти за основу."})
+            else:
+                set_session(conn, "confirm_draft", previous[0])
+                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Чернетка на основі останньої публікації. Відредагуй її перед використанням:\n\n" + previous[0], "reply_markup": draft_keyboard()})
         elif data == "posts":
             rows = conn.execute("""
                 SELECT id, body, scheduled_at FROM bot_scheduled_posts
@@ -358,17 +414,51 @@ def process_callback(update):
                 return
             result = telegram("sendMessage", {"chat_id": PUBLIC_CHANNEL, "text": session[1], "disable_web_page_preview": True})
             clear_session(conn)
-            telegram("sendMessage", {"chat_id": ADMIN_ID, "text": f"Допис опубліковано в @{PUBLIC_CHANNEL.lstrip('@')}. ID повідомлення: {result.get('message_id')}."})
+            telegram("sendMessage", {"chat_id": ADMIN_ID, "text": f"✅ Допис опубліковано в @{PUBLIC_CHANNEL.lstrip('@')}.", "reply_markup": {"inline_keyboard": [[{"text": "📌 Закріпити допис", "callback_data": f"pin:{result.get('message_id')}"}], [{"text": "➕ Створити ще один", "callback_data": "compose"}, {"text": "🏠 Панель", "callback_data": "menu"}]]}})
+        elif data.startswith("pin:"):
+            post_id = int(data.split(":", 1)[1])
+            telegram("pinChatMessage", {"chat_id": PUBLIC_CHANNEL, "message_id": post_id, "disable_notification": True})
+            telegram("answerCallbackQuery", {"callback_query_id": query.get("id"), "text": "Допис закріплено"})
+        elif data == "draft:edit":
+            session = get_session(conn)
+            if session and session[1]:
+                set_session(conn, "awaiting_text", session[1])
+                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Надішли повний оновлений текст чернетки одним повідомленням."})
+        elif data == "draft:back":
+            session = get_session(conn)
+            if session and session[1]:
+                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Поточна чернетка:\n\n" + session[1], "reply_markup": draft_keyboard()})
         elif data == "draft:cancel":
             clear_session(conn)
             telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Чернетку скасовано."})
         elif data == "draft:schedule":
-            set_session(conn, "awaiting_schedule", get_session(conn)[1] if get_session(conn) else None)
-            telegram("sendMessage", {
-                "chat_id": ADMIN_ID,
-                "text": "Надішли дату й час у форматі:\n<code>/at 2026-11-20 09:30</code>\nЧас указуй за Києвом.",
-                "parse_mode": "HTML",
-            })
+            session = get_session(conn)
+            if session and session[1]:
+                set_session(conn, "awaiting_schedule", session[1])
+                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Обери швидкий час або введи власну дату:", "reply_markup": quick_schedule_keyboard()})
+        elif data.startswith("schedule:"):
+            session = get_session(conn)
+            if not session or session[0] != "awaiting_schedule" or not session[1]:
+                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Чернетку не знайдено. Почни створення допису заново."})
+                return
+            now = datetime.now(KYIV)
+            choice = data.split(":", 1)[1]
+            if choice == "1h":
+                when = now.replace(second=0, microsecond=0) + __import__("datetime").timedelta(hours=1)
+            elif choice == "today20":
+                when = now.replace(hour=20, minute=0, second=0, microsecond=0)
+                if when <= now:
+                    when += __import__("datetime").timedelta(days=1)
+            elif choice == "tomorrow09":
+                when = (now + __import__("datetime").timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+            elif choice == "custom":
+                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Формат: /at YYYY-MM-DD HH:MM (час Києва)."})
+                return
+            else:
+                return
+            conn.execute("INSERT INTO bot_scheduled_posts (body, scheduled_at, created_by) VALUES (%s, %s, %s)", (session[1], when.astimezone(timezone.utc), ADMIN_ID))
+            clear_session(conn)
+            telegram("sendMessage", {"chat_id": ADMIN_ID, "text": f"🗓 Заплановано на {when:%d.%m.%Y о %H:%M} за Києвом.", "reply_markup": {"inline_keyboard": [[{"text": "🗓 Переглянути розклад", "callback_data": "posts"}], [{"text": "➕ Новий допис", "callback_data": "compose"}]]}})
 
 
 def process_message(update):
@@ -388,8 +478,7 @@ def process_message(update):
             clear_session(conn)
             send_panel(ADMIN_ID)
         elif text == "/post":
-            set_session(conn, "awaiting_text")
-            telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Надішли текст допису для каналу @PoltavaLight. Я покажу попередній перегляд перед публікацією."})
+            telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "<b>Створення допису</b>\n\nОбери шаблон або почни з чистого аркуша:", "parse_mode": "HTML", "reply_markup": post_creation_keyboard()})
         elif text in ("/status", "/health", "/stats", "/errors", "/history"):
             renderers = {"/status": lambda: panel_text(conn), "/health": lambda: health_text(conn), "/stats": lambda: stats_text(conn), "/errors": lambda: errors_text(conn), "/history": lambda: history_text(conn)}
             telegram("sendMessage", {"chat_id": ADMIN_ID, "text": renderers[text](), "parse_mode": "HTML", "reply_markup": menu_keyboard()})
@@ -429,11 +518,8 @@ def process_message(update):
                 set_session(conn, "confirm_draft", text)
                 telegram("sendMessage", {
                     "chat_id": ADMIN_ID,
-                    "text": "Попередній перегляд допису:\n\n" + text + "\n\nЩо робимо?",
-                    "reply_markup": {"inline_keyboard": [[
-                        {"text": "🚀 Опублікувати зараз", "callback_data": "draft:now"},
-                        {"text": "🗓 Запланувати", "callback_data": "draft:schedule"},
-                    ], [{"text": "Скасувати", "callback_data": "draft:cancel"}]]},
+                    "text": "👀 Попередній перегляд допису:\n\n" + text + "\n\nПеревір текст. Можеш відредагувати, опублікувати або запланувати.",
+                    "reply_markup": draft_keyboard(),
                 })
             elif session and session[0] == "awaiting_schedule":
                 telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Використай формат /at YYYY-MM-DD HH:MM."})
