@@ -212,7 +212,8 @@ def process_callback(update):
                 lines = ["<b>Заплановані дописи</b>"]
                 buttons = []
                 for post_id, text, when in rows:
-                    lines.append(f"\n<b>#{post_id}</b> · {when.astimezone(KYIV):%d.%m.%Y %H:%M}\n{(text[:100] + '…') if len(text) > 100 else text}")
+                    preview = text[:100] + ("…" if len(text) > 100 else "")
+                    lines.append(f"\\n<b>#{post_id}</b> · {when.astimezone(KYIV):%d.%m.%Y %H:%M}\\n{html.escape(preview)}")
                     buttons.append([{"text": f"Скасувати #{post_id}", "callback_data": f"cancel:{post_id}"}])
                 buttons.append([{"text": "⬅️ Назад", "callback_data": "menu"}])
                 body = "\n".join(lines)
@@ -221,7 +222,6 @@ def process_callback(update):
         elif data.startswith("cancel:"):
             post_id = int(data.split(":", 1)[1])
             conn.execute("UPDATE bot_scheduled_posts SET status = 'cancelled' WHERE id = %s AND status = 'scheduled'", (post_id,))
-            telegram("answerCallbackQuery", {"callback_query_id": query["id"], "text": f"Допис #{post_id} скасовано"})
             send_panel(chat_id, message_id)
         elif data == "draft:now":
             session = get_session(conn)
