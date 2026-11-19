@@ -293,8 +293,7 @@ def process_message(update):
                 set_session(conn, "confirm_draft", text)
                 telegram("sendMessage", {
                     "chat_id": ADMIN_ID,
-                    "text": "<b>Попередній перегляд допису:</b>\n\n" + text + "\n\nЩо робимо?",
-                    "parse_mode": "HTML",
+                    "text": "Попередній перегляд допису:\\n\\n" + text + "\\n\\nЩо робимо?",
                     "reply_markup": {"inline_keyboard": [[
                         {"text": "🚀 Опублікувати зараз", "callback_data": "draft:now"},
                         {"text": "🗓 Запланувати", "callback_data": "draft:schedule"},
