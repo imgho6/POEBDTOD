@@ -142,21 +142,28 @@ def main():
         record_monitor_check("telegram_bot", label, "error" if is_problem else status, details={"workflowOutcome": status})
         if is_problem:
             issues.append(f"• {label}: {status}")
+            record_error("telegram_bot", f"{label}: {status}", {"workflowOutcome": status})
 
     schedule_status, schedule_details = check_schedule()
     record_monitor_check("schedules", "актуальність графіка Полтавщини", schedule_status, details=schedule_details)
     if schedule_status != "ok":
-        issues.append("• Перевірка графіка: " + str(schedule_details.get("reason", "невідома помилка")))
+        reason = str(schedule_details.get("reason", "невідома помилка"))
+        issues.append("• Перевірка графіка: " + reason)
+        record_error("schedules", reason, schedule_details, "warning" if schedule_status == "warning" else "error")
 
     site_status, site_details = check_site()
     record_monitor_check("website", "доступність сайту", site_status, details=site_details)
     if site_status != "ok":
-        issues.append("• Сайт: " + str(site_details.get("reason", "HTTP " + str(site_details.get("httpStatus", "невідомо")))))
+        reason = str(site_details.get("reason", "HTTP " + str(site_details.get("httpStatus", "невідомо"))))
+        issues.append("• Сайт: " + reason)
+        record_error("website", reason, site_details)
 
     database_status, database_details = check_database()
     record_monitor_check("database", "підключення до PostgreSQL", database_status, details=database_details)
     if database_status == "error":
-        issues.append("• База даних: " + str(database_details.get("reason", "невідома помилка")))
+        reason = str(database_details.get("reason", "невідома помилка"))
+        issues.append("• База даних: " + reason)
+        record_error("database", reason, database_details)
 
     if not issues:
         print("Моніторинг: усі перевірки успішні")
