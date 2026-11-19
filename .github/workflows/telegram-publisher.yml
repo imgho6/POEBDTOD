@@ -81,7 +81,12 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: "@PoltavaLight"
           NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
-        run: python scripts/telegram-schedules.py
+        run: |
+          if python scripts/telegram-admin.py --is-enabled schedules; then
+            python scripts/telegram-schedules.py
+          else
+            echo "Модуль графіків вимкнено через адмінпанель"
+          fi
 
       - name: Надіслати прогноз наступного півгодинного інтервалу
         if: always() && steps.restore_cache.outcome == 'success' && github.event_name == 'workflow_dispatch'
@@ -100,7 +105,12 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: "@PoltavaLight"
           NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
-        run: python scripts/telegram-editorial.py
+        run: |
+          if python scripts/telegram-admin.py --is-enabled news; then
+            python scripts/telegram-editorial.py
+          else
+            echo "Редакційний модуль вимкнено через адмінпанель"
+          fi
 
       # Публікуємо стан Telegram, навіть якщо джерело графіків тимчасово недоступне.
       - name: Опублікувати JSON і стан Telegram
@@ -123,4 +133,9 @@ jobs:
           REFRESH_STATUS: ${{ steps.refresh.outcome }}
           SCHEDULE_PUBLISH_STATUS: ${{ steps.schedule_publish.outcome }}
           EDITORIAL_STATUS: ${{ steps.editorial.outcome }}
-        run: python scripts/telegram-monitor.py
+        run: |
+          if python scripts/telegram-admin.py --is-enabled monitor; then
+            python scripts/telegram-monitor.py
+          else
+            echo "Моніторинг вимкнено через адмінпанель"
+          fi
