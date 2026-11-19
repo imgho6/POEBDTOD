@@ -104,6 +104,27 @@ class EditorialFilterTests(unittest.TestCase):
         )
         self.assertTrue(editorial.same_news_lead(first, second))
 
+    def test_importance_score_prioritizes_urgent_local_outage_news(self):
+        ordinary = "На Полтавщині діятимуть графіки погодинних відключень електроенергії."
+        urgent = (
+            "На Полтавщині через аварійне пошкодження мереж знеструмлено кілька громад. "
+            "Енергетики відновлюють електропостачання."
+        )
+        ordinary_score = editorial.classify_news("suspilnepoltava", ordinary, "local")["importance"]
+        urgent_score = editorial.classify_news("suspilnepoltava", urgent, "local")["importance"]
+        self.assertGreater(urgent_score, ordinary_score)
+
+    def test_detects_rephrased_story_with_different_word_forms(self):
+        first = (
+            "На Полтавщині через пошкодження електромереж знеструмлено кілька громад. "
+            "Енергетики відновлюють живлення."
+        )
+        second = (
+            "У кількох громадах Полтавщини відсутнє електропостачання через пошкоджені мережі, "
+            "бригади повертають світло."
+        )
+        self.assertTrue(editorial.same_news_content(first, second))
+
     def test_incomplete_trailing_fragment_is_not_published(self):
         post = {
             "text": (
