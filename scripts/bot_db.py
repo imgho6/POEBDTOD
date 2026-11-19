@@ -62,8 +62,8 @@ def ensure_schema(conn):
             checked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
         """,
-        "CREATE INDEX IF NOT EXISTS bot_publications_created_at_idx ON bot_publications (created_at DESC)",
-        "CREATE INDEX IF NOT EXISTS bot_publications_kind_idx ON bot_publications (kind, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS bot_publications_published_at_idx ON bot_publications (published_at DESC)",
+        "CREATE INDEX IF NOT EXISTS bot_publications_kind_idx ON bot_publications (kind, published_at DESC)",
         "CREATE INDEX IF NOT EXISTS bot_errors_created_at_idx ON bot_errors (created_at DESC)",
         "CREATE INDEX IF NOT EXISTS bot_monitor_checks_checked_at_idx ON bot_monitor_checks (checked_at DESC)",
     )
