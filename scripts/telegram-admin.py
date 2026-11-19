@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 ADMIN_ID = 1234960363
 ADMIN_CHANNEL = "-1003570758649"
 PUBLIC_CHANNEL = "@PoltavaLight"
+SITE_URL = "https://xn--b1asjjg3j.ua/"
 KYIV = ZoneInfo("Europe/Kyiv")
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 
@@ -86,11 +87,14 @@ def ensure_admin_schema(conn):
     """)
     conn.execute("ALTER TABLE bot_scheduled_posts ADD COLUMN IF NOT EXISTS media_type TEXT")
     conn.execute("ALTER TABLE bot_scheduled_posts ADD COLUMN IF NOT EXISTS media_file_id TEXT")
+    conn.execute("ALTER TABLE bot_scheduled_posts ADD COLUMN IF NOT EXISTS website_button BOOLEAN NOT NULL DEFAULT FALSE")
     conn.execute("""CREATE TABLE IF NOT EXISTS bot_admin_drafts (
         id BIGSERIAL PRIMARY KEY, title TEXT NOT NULL DEFAULT 'Чернетка',
         body TEXT NOT NULL DEFAULT '', media_type TEXT, media_file_id TEXT,
+        website_button BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )""")
+    conn.execute("ALTER TABLE bot_admin_drafts ADD COLUMN IF NOT EXISTS website_button BOOLEAN NOT NULL DEFAULT FALSE")
     conn.execute("CREATE INDEX IF NOT EXISTS bot_admin_drafts_updated_idx ON bot_admin_drafts (updated_at DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS bot_scheduled_posts_due_idx ON bot_scheduled_posts (scheduled_at) WHERE status = 'scheduled'")
     for key in MODULES:
@@ -143,6 +147,38 @@ def draft_keyboard():
         [{"text": "🗓 Запланувати", "callback_data": "draft:schedule"}],
         [{"text": "✏️ Редагувати текст", "callback_data": "draft:edit"}, {"text": "❌ Скасувати", "callback_data": "draft:cancel"}],
     ]}
+
+
+def website_keyboard():
+    return {"inline_keyboard": [[{"text": "🌐 Відкрити Світло.ua", "url": SITE_URL}]]}
+
+
+def clean_forwarded_news(raw_text):
+    """Remove common promotional channel footers while preserving source credits."""
+    lines = []
+    promo = re.compile(
+        r"^(?:підпис(?:уйтесь|атися|атись)?|subscribe|наш канал|читайте нас|"
+        r"реклама|рекламна співпраця|для реклами|надсилайте новини|"
+        r"запропонувати новину|зв'язок з адміном|наші соцмережі)\b.*$",
+        re.IGNORECASE,
+    )
+    for raw_line in (raw_text or "").replace("\r", "").split("\n"):
+        line = raw_line.strip()
+        if not line:
+            if lines and lines[-1] != "":
+                lines.append("")
+            continue
+        if promo.match(line):
+            continue
+        if re.fullmatch(r"(?:https?://)?t\.me/[A-Za-z0-9_+/.-]+/?", line, re.IGNORECASE):
+            continue
+        if re.fullmatch(r"@[A-Za-z0-9_]{4,}", line):
+            continue
+        lines.append(line)
+    body = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+    if not body:
+        body = "📰 Новина"
+    return body + "\n\n⚡ Світло.ua"
 
 
 def drafts_keyboard(rows):
@@ -400,9 +436,9 @@ def process_callback(update):
                 telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Збережених чернеток немає."})
         elif data.startswith("drafts:open:"):
             draft_id = int(data.rsplit(":", 1)[1])
-            row = conn.execute("SELECT body, media_type, media_file_id FROM bot_admin_drafts WHERE id = %s", (draft_id,)).fetchone()
+            row = conn.execute("SELECT body, media_type, media_file_id, website_button FROM bot_admin_drafts WHERE id = %s", (draft_id,)).fetchone()
             if row:
-                set_session(conn, "confirm_draft", json.dumps({"body": row[0], "media_type": row[1], "media_file_id": row[2], "draft_id": draft_id}, ensure_ascii=False))
+                set_session(conn, "confirm_draft", json.dumps({"body": row[0], "media_type": row[1], "media_file_id": row[2], "website_button": bool(row[3]), "draft_id": draft_id}, ensure_ascii=False))
                 telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Чернетку відкрито:\n\n" + (row[0] or "[медіа без підпису]"), "reply_markup": draft_keyboard()})
             else:
                 telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Чернетку не знайдено."})
@@ -508,12 +544,13 @@ def process_callback(update):
             except Exception:
                 obj = {"body": session[1]}
             body, media_type, file_id = obj.get("body", ""), obj.get("media_type"), obj.get("media_file_id")
+            extra = {"reply_markup": website_keyboard()} if obj.get("website_button") else {}
             if media_type == "photo":
-                result = telegram("sendPhoto", {"chat_id": PUBLIC_CHANNEL, "photo": file_id, "caption": body[:1024]})
+                result = telegram("sendPhoto", {"chat_id": PUBLIC_CHANNEL, "photo": file_id, "caption": body[:1024], **extra})
             elif media_type == "video":
-                result = telegram("sendVideo", {"chat_id": PUBLIC_CHANNEL, "video": file_id, "caption": body[:1024]})
+                result = telegram("sendVideo", {"chat_id": PUBLIC_CHANNEL, "video": file_id, "caption": body[:1024], **extra})
             else:
-                result = telegram("sendMessage", {"chat_id": PUBLIC_CHANNEL, "text": body, "disable_web_page_preview": True})
+                result = telegram("sendMessage", {"chat_id": PUBLIC_CHANNEL, "text": body, "disable_web_page_preview": True, **extra})
             conn.execute("INSERT INTO bot_publications (kind, chat_id, message_id, title, body, published_at, metadata) VALUES (%s,%s,%s,%s,%s,NOW(),%s::jsonb)", ("admin_media" if media_type else "admin_text", PUBLIC_CHANNEL, result.get("message_id"), body[:120] or "Медіадопис", body, json.dumps({"media_type": media_type})))
             if obj.get("draft_id"):
                 conn.execute("DELETE FROM bot_admin_drafts WHERE id=%s", (obj["draft_id"],))
@@ -595,6 +632,24 @@ def process_message(update):
             return
         ensure_admin_schema(conn)
         session = get_session(conn)
+        forwarded = bool(message.get("forward_origin") or message.get("forward_from_chat") or message.get("forward_sender_name") or message.get("forward_date"))
+        if forwarded:
+            cleaned = clean_forwarded_news(text)
+            if media_type and len(cleaned) > 1024:
+                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Текст після очищення задовгий для підпису до медіа Telegram (максимум 1024 символи). Скороти його та надішли новину ще раз."})
+                return
+            draft_id = conn.execute(
+                "INSERT INTO bot_admin_drafts (title, body, media_type, media_file_id, website_button) VALUES (%s,%s,%s,%s,TRUE) RETURNING id",
+                ("Новина: " + (cleaned[:65] or "без заголовка"), cleaned, media_type, media_file_id),
+            ).fetchone()[0]
+            payload = {"body": cleaned, "media_type": media_type, "media_file_id": media_file_id, "website_button": True, "draft_id": draft_id}
+            set_session(conn, "confirm_draft", json.dumps(payload, ensure_ascii=False))
+            telegram("sendMessage", {
+                "chat_id": ADMIN_ID,
+                "text": "📰 Новину підготовлено. Прибрано типові рекламні підписи каналів, додано підпис Світло.ua та кнопку на сайт. Перевір перед публікацією:\n\n" + cleaned,
+                "reply_markup": draft_keyboard(),
+            })
+            return
         if session and session[0] == "awaiting_media" and media_type:
             payload = {"media_type": media_type, "media_file_id": media_file_id, "body": text}
             draft_id = conn.execute("INSERT INTO bot_admin_drafts (title, body, media_type, media_file_id) VALUES (%s,%s,%s,%s) RETURNING id", ("Медіадопис", text, media_type, media_file_id)).fetchone()[0]
