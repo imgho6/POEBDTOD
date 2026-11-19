@@ -1,10 +1,8 @@
 name: Telegram – графіки та прогнози
 
 on:
-  # Автоматичний запуск за 15 хв до кожної півгодинної межі.
-  # GitHub використовує UTC, але хвилини :15 та :45 не залежать від часового поясу Києва.
-  schedule:
-    - cron: "15,45 * * * *"
+  # Vercel Cron dispatches this workflow every half hour.
+  # A second GitHub schedule caused overlapping runs and cancellations.
   push:
     branches:
       - main
@@ -18,7 +16,7 @@ permissions:
 
 concurrency:
   group: telegram-publication-v4
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -78,7 +76,7 @@ jobs:
         run: python scripts/telegram-schedules.py
 
       - name: Надіслати прогноз наступного півгодинного інтервалу
-        if: always() && steps.restore_cache.outcome == 'success' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        if: always() && steps.restore_cache.outcome == 'success' && github.event_name == 'workflow_dispatch'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: "@PoltavaLight"
