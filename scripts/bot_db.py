@@ -21,11 +21,15 @@ def connection():
         yield None
         return
     try:
-        with psycopg.connect(url, connect_timeout=5) as conn:
-            yield conn
+        conn = psycopg.connect(url, connect_timeout=5)
     except Exception as error:
         print(f"База даних тимчасово недоступна: {error}")
         yield None
+        return
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def load_news_state():
