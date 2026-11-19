@@ -443,7 +443,8 @@ def process_callback(update):
             template = POST_TEMPLATES.get(key)
             if not template:
                 return
-            set_session(conn, "confirm_draft", template[1])
+            draft_id = conn.execute("INSERT INTO bot_admin_drafts (title, body) VALUES (%s,%s) RETURNING id", (template[0], template[1])).fetchone()[0]
+            set_session(conn, "confirm_draft", json.dumps({"body": template[1], "draft_id": draft_id}, ensure_ascii=False))
             telegram("sendMessage", {"chat_id": ADMIN_ID, "text": f"<b>{html.escape(template[0])}</b>\n\n{template[1]}\n\nЗаміни текст у шаблоні кнопкою редагування.", "parse_mode": "HTML", "reply_markup": draft_keyboard()})
         elif data == "post:copy":
             previous = conn.execute("""
@@ -454,7 +455,8 @@ def process_callback(update):
             if not previous:
                 telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "У базі ще немає допису, який можна взяти за основу."})
             else:
-                set_session(conn, "confirm_draft", previous[0])
+                draft_id = conn.execute("INSERT INTO bot_admin_drafts (title, body) VALUES (%s,%s) RETURNING id", ("Копія останнього допису", previous[0])).fetchone()[0]
+                set_session(conn, "confirm_draft", json.dumps({"body": previous[0], "draft_id": draft_id}, ensure_ascii=False))
                 telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Чернетка на основі останньої публікації. Відредагуй її перед використанням:\n\n" + previous[0], "reply_markup": draft_keyboard()})
         elif data == "posts":
             rows = conn.execute("""
