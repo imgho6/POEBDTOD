@@ -314,8 +314,8 @@ def dispatch_due():
             SELECT id, body FROM bot_scheduled_posts
             WHERE status = 'scheduled' AND scheduled_at <= NOW()
             ORDER BY scheduled_at
-            FOR UPDATE SKIP LOCKED
             LIMIT 10
+            FOR UPDATE SKIP LOCKED
         """).fetchall()
         for post_id, body in rows:
             conn.execute("UPDATE bot_scheduled_posts SET status = 'sending' WHERE id = %s", (post_id,))
