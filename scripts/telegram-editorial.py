@@ -445,7 +445,7 @@ def same_news_content(left, right):
         if best:
             unmatched.remove(best)
             matched += 1
-    return matched / max(len(left_words), len(right_words)) >= 0.55
+    return matched / max(len(left_words), len(right_words)) >= 0.40
 
 def make_caption(post, source_name=None, handle=None):
     """Формує коротку новину з не більш ніж двох завершених речень."""
@@ -560,6 +560,7 @@ def maybe_news(state, now):
                 candidates.append(post)
         except Exception as error:
             source_errors.append(f"@{handle}: {error}")
+            record_error("editorial_source", error, {"handle": handle})
             print(f"Новини: не вдалося прочитати @{handle}: {error}")
 
     if source_errors:
