@@ -84,6 +84,14 @@ def ensure_admin_schema(conn):
             last_error TEXT
         )
     """)
+    conn.execute("ALTER TABLE bot_scheduled_posts ADD COLUMN IF NOT EXISTS media_type TEXT")
+    conn.execute("ALTER TABLE bot_scheduled_posts ADD COLUMN IF NOT EXISTS media_file_id TEXT")
+    conn.execute("""CREATE TABLE IF NOT EXISTS bot_admin_drafts (
+        id BIGSERIAL PRIMARY KEY, title TEXT NOT NULL DEFAULT 'Чернетка',
+        body TEXT NOT NULL DEFAULT '', media_type TEXT, media_file_id TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS bot_admin_drafts_updated_idx ON bot_admin_drafts (updated_at DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS bot_scheduled_posts_due_idx ON bot_scheduled_posts (scheduled_at) WHERE status = 'scheduled'")
     for key in MODULES:
         conn.execute(
@@ -98,6 +106,8 @@ def menu_keyboard():
             [{"text": "📊 Статистика", "callback_data": "stats"}, {"text": "🩺 Стан системи", "callback_data": "health"}],
             [{"text": "⚙️ Модулі", "callback_data": "modules"}, {"text": "🗓 Заплановані", "callback_data": "posts"}],
             [{"text": "📰 Історія публікацій", "callback_data": "history"}, {"text": "🚨 Помилки", "callback_data": "errors"}],
+            [{"text": "🗓 Календар", "callback_data": "calendar"}, {"text": "✏️ Редагувати допис", "callback_data": "published:edit:list"}],
+            [{"text": "📌 Закріплене", "callback_data": "pin:manage"}],
             [{"text": "📝 Створити допис", "callback_data": "compose"}, {"text": "🔧 Налаштування", "callback_data": "config"}],
             [{"text": "🔄 Оновити", "callback_data": "menu"}],
         ]
@@ -122,6 +132,7 @@ def post_creation_keyboard():
         [{"text": "📊 Графік", "callback_data": "post:template:schedule"}, {"text": "🚨 Терміново", "callback_data": "post:template:alert"}],
         [{"text": "📰 Новина", "callback_data": "post:template:news"}, {"text": "📢 Оголошення", "callback_data": "post:template:notice"}],
         [{"text": "♻️ На основі останнього допису", "callback_data": "post:copy"}],
+        [{"text": "🖼 Фото / відео", "callback_data": "post:media"}, {"text": "🗂 Чернетки", "callback_data": "drafts:list"}],
         [{"text": "⬅️ До панелі", "callback_data": "menu"}],
     ]}
 
@@ -132,6 +143,12 @@ def draft_keyboard():
         [{"text": "🗓 Запланувати", "callback_data": "draft:schedule"}],
         [{"text": "✏️ Редагувати текст", "callback_data": "draft:edit"}, {"text": "❌ Скасувати", "callback_data": "draft:cancel"}],
     ]}
+
+
+def drafts_keyboard(rows):
+    buttons = [[{"text": f"✏️ #{r[0]} · {r[1][:30]}", "callback_data": f"drafts:open:{r[0]}"}] for r in rows]
+    buttons.append([{"text": "⬅️ До панелі", "callback_data": "menu"}])
+    return {"inline_keyboard": buttons}
 
 
 def quick_schedule_keyboard():
@@ -363,6 +380,61 @@ def process_callback(update):
             telegram("editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": config_text(conn), "parse_mode": "HTML", "reply_markup": back_keyboard()})
         elif data == "compose":
             telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "<b>Створення допису</b>\n\nОбери спосіб підготовки публікації:", "parse_mode": "HTML", "reply_markup": post_creation_keyboard()})
+        elif data == "post:media":
+            set_session(conn, "awaiting_media")
+            telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Надішли одне фото або відео. Після цього надішли підпис окремим повідомленням."})
+        elif data == "drafts:list":
+            rows = conn.execute("SELECT id, title FROM bot_admin_drafts ORDER BY updated_at DESC LIMIT 20").fetchall()
+            if rows:
+                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "<b>Збережені чернетки</b>", "parse_mode": "HTML", "reply_markup": drafts_keyboard(rows)})
+            else:
+                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Збережених чернеток немає."})
+        elif data.startswith("drafts:open:"):
+            draft_id = int(data.rsplit(":", 1)[1])
+            row = conn.execute("SELECT body, media_type, media_file_id FROM bot_admin_drafts WHERE id = %s", (draft_id,)).fetchone()
+            if row:
+                set_session(conn, "confirm_draft", json.dumps({"body": row[0], "media_type": row[1], "media_file_id": row[2], "draft_id": draft_id}, ensure_ascii=False))
+                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Чернетку відкрито:\n\n" + (row[0] or "[медіа без підпису]"), "reply_markup": draft_keyboard()})
+            else:
+                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Чернетку не знайдено."})
+        elif data == "calendar":
+            start = datetime.now(KYIV).replace(hour=0, minute=0, second=0, microsecond=0)
+            end = start + __import__("datetime").timedelta(days=7)
+            rows = conn.execute("SELECT id, body, scheduled_at FROM bot_scheduled_posts WHERE status='scheduled' AND scheduled_at >= %s AND scheduled_at < %s ORDER BY scheduled_at", (start.astimezone(timezone.utc), end.astimezone(timezone.utc))).fetchall()
+            lines = ["<b>🗓 Календар на 7 днів</b>", ""]
+            last_day = None
+            for pid, body, when in rows:
+                local = when.astimezone(KYIV)
+                day = local.strftime("%A, %d.%m")
+                if day != last_day:
+                    lines.append("\n<b>" + day + "</b>")
+                    last_day = day
+                lines.append(f"• {local:%H:%M} · #{pid} · {html.escape((body or '[медіа]')[:80])}")
+            if not rows:
+                lines.append("Запланованих дописів на цей тиждень немає.")
+            telegram("editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": "\n".join(lines), "parse_mode": "HTML", "reply_markup": back_keyboard()})
+        elif data == "published:edit:list":
+            rows = conn.execute("SELECT id, title, body FROM bot_publications WHERE chat_id=%s AND deleted_at IS NULL ORDER BY published_at DESC LIMIT 10", (PUBLIC_CHANNEL,)).fetchall()
+            buttons = [[{"text": f"✏️ #{r[0]} · {(r[1] or r[2] or 'Допис')[:30]}", "callback_data": f"published:edit:{r[0]}"}] for r in rows]
+            buttons.append([{"text": "⬅️ Назад", "callback_data": "menu"}])
+            telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Обери публікацію:", "reply_markup": {"inline_keyboard": buttons}})
+        elif data.startswith("published:edit:"):
+            pid = int(data.rsplit(":", 1)[1])
+            row = conn.execute("SELECT message_id, metadata FROM bot_publications WHERE id=%s AND chat_id=%s AND deleted_at IS NULL", (pid, PUBLIC_CHANNEL)).fetchone()
+            if row:
+                meta = row[1] if isinstance(row[1], dict) else {}
+                set_session(conn, "edit_published", json.dumps({"publication_id": pid, "message_id": row[0], "media_type": meta.get("media_type")}))
+                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Надішли новий повний текст або підпис до публікації."})
+        elif data == "pin:manage":
+            info = telegram("getChat", {"chat_id": PUBLIC_CHANNEL})
+            pinned = info.get("pinned_message")
+            if pinned:
+                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": f"Закріплено повідомлення ID {pinned['message_id']}.", "reply_markup": {"inline_keyboard": [[{"text": "📌 Відкріпити", "callback_data": f"unpin:{pinned['message_id']}"}]]}})
+            else:
+                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Закріпленого повідомлення немає."})
+        elif data.startswith("unpin:"):
+            telegram("unpinChatMessage", {"chat_id": PUBLIC_CHANNEL, "message_id": int(data.split(":", 1)[1])})
+            telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Повідомлення відкріплено."})
         elif data == "post:blank":
             set_session(conn, "awaiting_text")
             telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Надішли текст допису. Після цього зможеш відредагувати його, опублікувати або запланувати."})
@@ -412,7 +484,20 @@ def process_callback(update):
             if not session or session[0] != "confirm_draft" or not session[1]:
                 telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Чернетку не знайдено. Почни з /post."})
                 return
-            result = telegram("sendMessage", {"chat_id": PUBLIC_CHANNEL, "text": session[1], "disable_web_page_preview": True})
+            try:
+                obj = json.loads(session[1]) if session[1].startswith("{") else {"body": session[1]}
+            except Exception:
+                obj = {"body": session[1]}
+            body, media_type, file_id = obj.get("body", ""), obj.get("media_type"), obj.get("media_file_id")
+            if media_type == "photo":
+                result = telegram("sendPhoto", {"chat_id": PUBLIC_CHANNEL, "photo": file_id, "caption": body[:1024]})
+            elif media_type == "video":
+                result = telegram("sendVideo", {"chat_id": PUBLIC_CHANNEL, "video": file_id, "caption": body[:1024]})
+            else:
+                result = telegram("sendMessage", {"chat_id": PUBLIC_CHANNEL, "text": body, "disable_web_page_preview": True})
+            conn.execute("INSERT INTO bot_publications (kind, chat_id, message_id, title, body, published_at, metadata) VALUES (%s,%s,%s,%s,%s,NOW(),%s::jsonb)", ("admin_media" if media_type else "admin_text", PUBLIC_CHANNEL, result.get("message_id"), body[:120] or "Медіадопис", body, json.dumps({"media_type": media_type})))
+            if obj.get("draft_id"):
+                conn.execute("DELETE FROM bot_admin_drafts WHERE id=%s", (obj["draft_id"],))
             clear_session(conn)
             telegram("sendMessage", {"chat_id": ADMIN_ID, "text": f"✅ Допис опубліковано в @{PUBLIC_CHANNEL.lstrip('@')}.", "reply_markup": {"inline_keyboard": [[{"text": "📌 Закріпити допис", "callback_data": f"pin:{result.get('message_id')}"}], [{"text": "➕ Створити ще один", "callback_data": "compose"}, {"text": "🏠 Панель", "callback_data": "menu"}]]}})
         elif data.startswith("pin:"):
@@ -456,7 +541,11 @@ def process_callback(update):
                 return
             else:
                 return
-            conn.execute("INSERT INTO bot_scheduled_posts (body, scheduled_at, created_by) VALUES (%s, %s, %s)", (session[1], when.astimezone(timezone.utc), ADMIN_ID))
+            try:
+                obj = json.loads(session[1]) if session[1].startswith("{") else {"body": session[1]}
+            except Exception:
+                obj = {"body": session[1]}
+            conn.execute("INSERT INTO bot_scheduled_posts (body, scheduled_at, created_by, media_type, media_file_id) VALUES (%s,%s,%s,%s,%s)", (obj.get("body", ""), when.astimezone(timezone.utc), ADMIN_ID, obj.get("media_type"), obj.get("media_file_id")))
             clear_session(conn)
             telegram("sendMessage", {"chat_id": ADMIN_ID, "text": f"🗓 Заплановано на {when:%d.%m.%Y о %H:%M} за Києвом.", "reply_markup": {"inline_keyboard": [[{"text": "🗓 Переглянути розклад", "callback_data": "posts"}], [{"text": "➕ Новий допис", "callback_data": "compose"}]]}})
 
@@ -466,14 +555,46 @@ def process_message(update):
     user = message.get("from", {})
     if user.get("id") != ADMIN_ID or message.get("chat", {}).get("type") != "private":
         return
-    text = (message.get("text") or "").strip()
-    if not text:
+    text = (message.get("text") or message.get("caption") or "").strip()
+    media_type = "photo" if message.get("photo") else ("video" if message.get("video") else None)
+    media_file_id = (message["photo"][-1]["file_id"] if message.get("photo") else (message["video"]["file_id"] if message.get("video") else None))
+    if not text and not media_type:
         return
     with db_connection() as conn:
         if conn is None:
             telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Помилка: немає з'єднання з Neon."})
             return
         ensure_admin_schema(conn)
+        session = get_session(conn)
+        if session and session[0] == "awaiting_media" and media_type:
+            payload = {"media_type": media_type, "media_file_id": media_file_id, "body": text}
+            set_session(conn, "awaiting_media_caption", json.dumps(payload, ensure_ascii=False))
+            if text:
+                set_session(conn, "confirm_draft", json.dumps(payload, ensure_ascii=False))
+                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Медіа з підписом отримано. Перевір і публікуй:", "reply_markup": draft_keyboard()})
+            else:
+                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Медіа отримано. Тепер надішли підпис або /done_media."})
+            return
+        if session and session[0] == "awaiting_media_caption" and text:
+            payload = json.loads(session[1]); payload["body"] = text
+            set_session(conn, "confirm_draft", json.dumps(payload, ensure_ascii=False))
+            telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Підпис готовий. Перевір і публікуй:", "reply_markup": draft_keyboard()})
+            return
+        if session and session[0] == "edit_published" and text:
+            edit = json.loads(session[1])
+            if edit.get("media_type") in ("photo", "video"):
+                telegram("editMessageCaption", {"chat_id": PUBLIC_CHANNEL, "message_id": edit["message_id"], "caption": text[:1024]})
+            else:
+                telegram("editMessageText", {"chat_id": PUBLIC_CHANNEL, "message_id": edit["message_id"], "text": text})
+            conn.execute("UPDATE bot_publications SET body=%s, title=%s WHERE id=%s", (text, text[:120], edit["publication_id"]))
+            clear_session(conn)
+            telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Публікацію відредаговано."})
+            return
+        if text == "/done_media" and session and session[0] == "awaiting_media_caption":
+            payload = json.loads(session[1])
+            set_session(conn, "confirm_draft", json.dumps(payload, ensure_ascii=False))
+            telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Медіадопис готовий без підпису.", "reply_markup": draft_keyboard()})
+            return
         if text in ("/start", "/panel"):
             clear_session(conn)
             send_panel(ADMIN_ID)
@@ -516,6 +637,7 @@ def process_message(update):
                     telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Занадто довгий текст. Максимум 4000 символів."})
                     return
                 set_session(conn, "confirm_draft", text)
+                conn.execute("INSERT INTO bot_admin_drafts (title, body) VALUES (%s, %s)", (text[:80] or "Чернетка", text))
                 telegram("sendMessage", {
                     "chat_id": ADMIN_ID,
                     "text": "👀 Попередній перегляд допису:\n\n" + text + "\n\nПеревір текст. Можеш відредагувати, опублікувати або запланувати.",
@@ -533,21 +655,27 @@ def dispatch_due():
             raise RuntimeError("Neon database unavailable")
         ensure_admin_schema(conn)
         rows = conn.execute("""
-            SELECT id, body FROM bot_scheduled_posts
+            SELECT id, body, media_type, media_file_id FROM bot_scheduled_posts
             WHERE status = 'scheduled' AND scheduled_at <= NOW()
             ORDER BY scheduled_at
             LIMIT 10
             FOR UPDATE SKIP LOCKED
         """).fetchall()
-        for post_id, body in rows:
+        for post_id, body, media_type, media_file_id in rows:
             conn.execute("UPDATE bot_scheduled_posts SET status = 'sending' WHERE id = %s", (post_id,))
             try:
-                result = telegram("sendMessage", {"chat_id": PUBLIC_CHANNEL, "text": body, "disable_web_page_preview": True})
+                if media_type == "photo":
+                    result = telegram("sendPhoto", {"chat_id": PUBLIC_CHANNEL, "photo": media_file_id, "caption": (body or "")[:1024]})
+                elif media_type == "video":
+                    result = telegram("sendVideo", {"chat_id": PUBLIC_CHANNEL, "video": media_file_id, "caption": (body or "")[:1024]})
+                else:
+                    result = telegram("sendMessage", {"chat_id": PUBLIC_CHANNEL, "text": body, "disable_web_page_preview": True})
                 conn.execute("""
                     UPDATE bot_scheduled_posts
                     SET status = 'sent', sent_at = NOW(), telegram_message_id = %s, last_error = NULL
                     WHERE id = %s
                 """, (result.get("message_id"), post_id))
+                conn.execute("INSERT INTO bot_publications (kind, chat_id, message_id, title, body, published_at, metadata) VALUES (%s,%s,%s,%s,%s,NOW(),%s::jsonb)", ("scheduled_media" if media_type else "scheduled_text", PUBLIC_CHANNEL, result.get("message_id"), (body or "")[:120], body, json.dumps({"media_type": media_type})))
                 print(f"Scheduled post {post_id} published")
             except Exception as error:
                 conn.execute("""
