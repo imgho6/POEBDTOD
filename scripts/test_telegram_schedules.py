@@ -80,37 +80,41 @@ class StatusTargetTests(unittest.TestCase):
         self.assertEqual(state["statusMessages"]["lastKey"], "2026-11-15:24")
         self.assertEqual(state["statusMessageIds"][-1]["message_id"], 124)
 
-    def test_cleanup_initializes_two_hour_cycle_without_deleting(self):
+    def test_cleanup_deletes_old_messages_even_on_first_run(self):
         now = self.at(12, 0)
         state = {
             "statusMessageIds": [
-                {"message_id": 1, "sentAt": self.at(8, 0).isoformat()}
+                {"message_id": 1, "sentAt": self.at(9, 30).isoformat()}
             ]
         }
         with (
+            patch.object(MODULE, "CHANNEL_ID", "-100"),
+            patch.object(MODULE, "TOKEN", "test-token"),
             patch.object(MODULE, "save_state"),
-            patch.object(MODULE, "telegram_request") as telegram,
+            patch.object(MODULE, "telegram_request", return_value={"ok": True}) as telegram,
         ):
             MODULE.cleanup_status_messages(state, now)
-        telegram.assert_not_called()
-        self.assertEqual(state["statusMessageIds"][0]["message_id"], 1)
+        telegram.assert_called_once()
+        self.assertEqual(state["statusMessageIds"], [])
         self.assertEqual(state["statusCleanup"]["lastRunAt"], now.isoformat())
 
-    def test_cleanup_waits_until_two_hours_after_last_cleanup(self):
+    def test_cleanup_does_not_wait_for_previous_two_hour_cycle(self):
         now = self.at(12, 0)
         state = {
-            "statusCleanup": {"lastRunAt": self.at(10, 1).isoformat()},
+            "statusCleanup": {"lastRunAt": self.at(11, 59).isoformat()},
             "statusMessageIds": [
-                {"message_id": 1, "sentAt": self.at(8, 0).isoformat()}
+                {"message_id": 1, "sentAt": self.at(9, 0).isoformat()}
             ],
         }
         with (
+            patch.object(MODULE, "CHANNEL_ID", "-100"),
+            patch.object(MODULE, "TOKEN", "test-token"),
             patch.object(MODULE, "save_state"),
-            patch.object(MODULE, "telegram_request") as telegram,
+            patch.object(MODULE, "telegram_request", return_value={"ok": True}) as telegram,
         ):
             MODULE.cleanup_status_messages(state, now)
-        telegram.assert_not_called()
-        self.assertEqual(len(state["statusMessageIds"]), 1)
+        telegram.assert_called_once()
+        self.assertEqual(state["statusMessageIds"], [])
 
     def test_cleanup_deletes_only_messages_at_least_two_hours_old(self):
         now = self.at(12, 0)
