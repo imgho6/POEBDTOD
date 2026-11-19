@@ -1,6 +1,11 @@
 name: Register Telegram admin webhook
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - scripts/telegram-admin.py
+      - .github/workflows/register-telegram-webhook.yml
 permissions:
   contents: read
 jobs:
