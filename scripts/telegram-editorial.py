@@ -5,6 +5,7 @@ Runs alongside the schedule publisher. News is text-only: source photos,
 previews, thumbnails, and logos are never downloaded or forwarded.
 """
 import hashlib
+from difflib import SequenceMatcher
 import html
 import json
 import os
@@ -42,8 +43,8 @@ LOCAL_TERMS = (
 POWER_TERMS = (
     "електроенерг", "електропостач", "електромереж", "електроенергет",
     "відключенн", "графік відключ", "графіки відключ", "черг відключ",
-    "обленерго", "енергосистем", "енергетичн", "енергопостач",
-    "генерац", "дефіцит потуж", "аварійна мереж", "аварійні мереж", "світло",
+    "обленерго", "енергосистем", "енергопостач",
+    "генерац", "дефіцит потуж", "аварійна мереж", "аварійні мереж",
     "тариф на електро", "електричн.*тариф",
 )
 NATIONAL_SCOPE_TERMS = (
@@ -255,9 +256,10 @@ def relevant_post(handle, text, category):
     if any(term in lowered for term in EXCLUDE_TERMS):
         return False
 
-    # Канал присвячений електропостачанню Полтавщини, а не загальній стрічці новин.
-    # Географічна згадка або слово "транспорт" самі по собі не роблять новину доречною.
-    is_power = any(term in lowered for term in POWER_TERMS)
+    # Перевіряємо саме вступ новини. Згадка про енергетику наприкінці
+    # довгої політичної статті не робить її новиною про електропостачання.
+    lead = " ".join(lowered.split())[:600]
+    is_power = any(term in lead for term in POWER_TERMS)
     if not is_power:
         return False
 
@@ -289,42 +291,82 @@ def clean_source_text(text):
     return "\n".join(cleaned)
 
 
-def make_caption(post, source_name=None, handle=None):
-    source_text = clean_source_text(post.get("text", ""))
+def complete_sentences(paragraph):
+    """Повертає лише завершені речення, відкидаючи обрізаний хвіст джерела."""
+    paragraph = re.sub(r"\s*🔹\s*", " ", paragraph).strip()
+    if not paragraph:
+        return []
+
+    parts = re.split(r"(?<=[.!?])\s+", paragraph)
+    return [
+        part.strip()
+        for part in parts
+        if re.search(r"[.!?][»”\"')\]]*$", part.strip())
+    ]
+
+
+def news_parts(text):
+    source_text = clean_source_text(text)
     paragraphs = [part.strip() for part in source_text.splitlines() if part.strip()]
     if not paragraphs:
-        return None
+        return None, []
 
-    first = paragraphs[0]
-    remainder = " ".join(paragraphs[1:]).strip()
-
-    if len(first) > 175:
-        sentence = re.match(r"^(.{35,170}?[.!?])(?:\s|$)", first)
-        if sentence:
-            title = sentence.group(1).strip()
-            remainder = (first[len(title):].strip() + " " + remainder).strip()
-        else:
-            title = first[:170].rsplit(" ", 1)[0].rstrip(" ,;:")
-            remainder = (first[len(title):].strip() + " " + remainder).strip()
-    else:
+    first = re.sub(r"^(?:❗️|🔹)\s*", "", paragraphs[0]).strip()
+    first_sentences = complete_sentences(first)
+    if first_sentences:
+        title = first_sentences[0]
+        body = first_sentences[1:]
+    elif len(first) <= 180 and not first.endswith(("…", "...")):
+        # Деякі джерела оформлюють заголовок без крапки.
         title = first
+        body = []
+    else:
+        return None, []
+
+    for paragraph in paragraphs[1:]:
+        body.extend(complete_sentences(paragraph))
 
     title = re.sub(r"https?://\S+", "", title).strip()
-    remainder = re.sub(r"https?://\S+", "", remainder).strip()
+    body = [re.sub(r"https?://\S+", "", item).strip() for item in body]
+    return title, [item for item in body if item]
+
+
+def make_news_lead(text):
+    title, _ = news_parts(text)
     if not title:
+        return ""
+    return re.sub(r"[^\w]+", " ", title.casefold()).strip()
+
+
+def same_news_lead(left, right):
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    if min(len(left), len(right)) < 35:
+        return False
+    return SequenceMatcher(None, left, right).ratio() >= 0.90
+
+
+def make_caption(post, source_name=None, handle=None):
+    """Формує коротку новину з не більш ніж двох завершених речень."""
+    title, body_sentences = news_parts(post.get("text", ""))
+    if not title or len(title) > 180:
         return None
 
-    if len(remainder) > 650:
-        remainder = remainder[:647].rsplit(" ", 1)[0] + "…"
+    body = next(
+        (
+            sentence for sentence in body_sentences
+            if len(sentence) <= 230 and len(title) + len(sentence) <= 420
+        ),
+        "",
+    )
 
     safe_title = html.escape(title)
-    safe_body = html.escape(remainder)
-    if remainder:
-        caption = f"❗️ <b>{safe_title}</b>\n\n{safe_body}"
-    else:
-        caption = f"❗️ <b>{safe_title}</b>"
-    return caption[:1000]
-
+    caption = f"❗️ <b>{safe_title}</b>"
+    if body:
+        caption += "\n\n" + html.escape(body)
+    return caption
 
 def make_news_message(post):
     """Повертає лише текст новини без видимого посилання на джерело."""
@@ -377,6 +419,7 @@ def maybe_news(state, now):
         return
 
     seen = set(news_state.get("seen", []))
+    seen_leads = list(news_state.get("seenLeads", []))
     candidates = []
     for handle, source_name, category in SOURCES:
         try:
@@ -397,9 +440,13 @@ def maybe_news(state, now):
                 digest = hashlib.sha256(
                     re.sub(r"\s+", " ", post["text"].casefold()).encode("utf-8")
                 ).hexdigest()
-                if digest in seen:
+                lead = make_news_lead(post["text"])
+                if digest in seen or not lead:
+                    continue
+                if any(same_news_lead(lead, previous) for previous in seen_leads):
                     continue
                 post["digest"] = digest
+                post["lead"] = lead
                 post["published_dt"] = published
                 post["source_name"] = source_name
                 post["handle"] = handle
@@ -425,8 +472,20 @@ def maybe_news(state, now):
         return
 
     post_id = result.get("message_id")
-    seen.add(post["digest"])
-    news_state["seen"] = list(seen)[-150:]
+    # Позначаємо як прочитані й інші джерела з тією самою новиною,
+    # щоб майже однакові передруки не прийшли наступним запуском.
+    related = [
+        candidate for candidate in candidates
+        if same_news_lead(candidate["lead"], post["lead"])
+    ]
+    seen.update(candidate["digest"] for candidate in related)
+    news_state["seen"] = list(dict.fromkeys([
+        *news_state.get("seen", []),
+        *(candidate["digest"] for candidate in related),
+    ]))[-150:]
+    news_state["seenLeads"] = list(dict.fromkeys([
+        *seen_leads, post["lead"],
+    ]))[-100:]
     news_state["lastSentAt"] = now.isoformat()
     news_state["lastMessageId"] = post_id
     news_state["lastSourcePost"] = get_post_url(post["handle"], post)
