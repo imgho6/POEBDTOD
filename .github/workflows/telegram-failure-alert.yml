@@ -1,0 +1,82 @@
+name: Telegram – сповіщення про збої
+
+on:
+  workflow_run:
+    workflows:
+      - Telegram – графіки та прогнози
+      - Telegram admin update
+      - Telegram scheduled posts
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  notify:
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'failure' ||
+          github.event.workflow_run.conclusion == 'timed_out' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Повідомити адміністратора в Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_ADMIN_CHAT_ID: "1234960363"
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          WORKFLOW_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          WORKFLOW_RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+          WORKFLOW_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          WORKFLOW_SHA: ${{ github.event.workflow_run.head_sha }}
+          WORKFLOW_URL: ${{ github.event.workflow_run.html_url }}
+          WORKFLOW_EVENT: ${{ github.event.workflow_run.event }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+          chat_id = os.environ["TELEGRAM_ADMIN_CHAT_ID"]
+          if not token:
+              raise SystemExit("TELEGRAM_BOT_TOKEN is not configured")
+
+          name = os.environ.get("WORKFLOW_NAME", "Unknown workflow")
+          conclusion = os.environ.get("WORKFLOW_CONCLUSION", "unknown")
+          run_number = os.environ.get("WORKFLOW_RUN_NUMBER", "?")
+          branch = os.environ.get("WORKFLOW_BRANCH", "?")
+          sha = os.environ.get("WORKFLOW_SHA", "")[:7]
+          event = os.environ.get("WORKFLOW_EVENT", "?")
+          url = os.environ.get("WORKFLOW_URL", "")
+
+          text = (
+              "🚨 <b>GitHub Actions: збій workflow</b>\n\n"
+              f"<b>Workflow:</b> {name}\n"
+              f"<b>Статус:</b> {conclusion}\n"
+              f"<b>Запуск:</b> #{run_number}\n"
+              f"<b>Гілка:</b> {branch}\n"
+              f"<b>Коміт:</b> <code>{sha}</code>\n"
+              f"<b>Подія:</b> {event}\n"
+              f'<a href="{url}">Відкрити логи запуску</a>'
+          )
+
+          payload = json.dumps({
+              "chat_id": chat_id,
+              "text": text,
+              "parse_mode": "HTML",
+              "disable_web_page_preview": True,
+          }).encode("utf-8")
+          request = urllib.request.Request(
+              f"https://api.telegram.org/bot{token}/sendMessage",
+              data=payload,
+              headers={"Content-Type": "application/json"},
+              method="POST",
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              result = json.loads(response.read().decode("utf-8"))
+          if not result.get("ok"):
+              raise SystemExit(f"Telegram API error: {result}")
+          print("Failure alert sent to Telegram")
+          PY
