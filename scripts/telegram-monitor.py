@@ -140,8 +140,10 @@ def main():
             label == "публікація змін графіка" and status == "skipped" and statuses["оновлення джерела графіків"] != "success"
         )
         record_monitor_check("telegram_bot", label, "error" if is_problem else status, details={"workflowOutcome": status})
-        if is_problem:
+        if is_problem and label != "редакційний модуль":
             issues.append(f"• {label}: {status}")
+        elif is_problem:
+            print("Редакційний модуль повідомляє про власні помилки окремим повідомленням")
             record_error("telegram_bot", f"{label}: {status}", {"workflowOutcome": status})
 
     schedule_status, schedule_details = check_schedule()
