@@ -8,8 +8,72 @@ import os
 from contextlib import contextmanager
 
 
+_SCHEMA_READY = False
+
+
+def ensure_schema(conn):
+    """Створює мінімальну схему один раз на процес, без окремого ручного SQL-кроку."""
+    statements = (
+        """
+        CREATE TABLE IF NOT EXISTS bot_news_state (
+            state_key TEXT PRIMARY KEY,
+            state_value JSONB NOT NULL DEFAULT '{}'::jsonb,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS bot_publications (
+            id BIGSERIAL PRIMARY KEY,
+            kind TEXT NOT NULL,
+            chat_id TEXT NOT NULL,
+            message_id BIGINT NOT NULL,
+            source_handle TEXT,
+            source_post TEXT,
+            content_hash TEXT,
+            title TEXT,
+            body TEXT,
+            importance_score INTEGER,
+            relevance_score INTEGER,
+            source_priority INTEGER,
+            metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            deleted_at TIMESTAMPTZ,
+            UNIQUE (chat_id, message_id)
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS bot_errors (
+            id BIGSERIAL PRIMARY KEY,
+            component TEXT NOT NULL,
+            severity TEXT NOT NULL DEFAULT 'error',
+            message TEXT NOT NULL,
+            context JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS bot_monitor_checks (
+            id BIGSERIAL PRIMARY KEY,
+            component TEXT NOT NULL,
+            check_name TEXT NOT NULL,
+            status TEXT NOT NULL,
+            duration_ms INTEGER,
+            details JSONB NOT NULL DEFAULT '{}'::jsonb,
+            checked_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """,
+        "CREATE INDEX IF NOT EXISTS bot_publications_created_at_idx ON bot_publications (created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS bot_publications_kind_idx ON bot_publications (kind, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS bot_errors_created_at_idx ON bot_errors (created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS bot_monitor_checks_checked_at_idx ON bot_monitor_checks (checked_at DESC)",
+    )
+    for statement in statements:
+        conn.execute(statement)
+
+
 @contextmanager
 def connection():
+    global _SCHEMA_READY
     url = os.environ.get("NEON_DATABASE_URL", "").strip()
     if not url:
         yield None
@@ -26,9 +90,24 @@ def connection():
         print(f"База даних тимчасово недоступна: {error}")
         yield None
         return
+
     try:
-        with conn:
-            yield conn
+        if not _SCHEMA_READY:
+            try:
+                with conn.transaction():
+                    ensure_schema(conn)
+                _SCHEMA_READY = True
+            except Exception as error:
+                print(f"Не вдалося підготувати схему PostgreSQL: {error}")
+                conn.close()
+                yield None
+                return
+
+        try:
+            with conn:
+                yield conn
+        except Exception as error:
+            print(f"Помилка транзакції PostgreSQL: {error}")
     finally:
         conn.close()
 
