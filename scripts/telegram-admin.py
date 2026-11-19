@@ -351,10 +351,14 @@ def is_enabled(key):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dispatch-due", action="store_true")
+    parser.add_argument("--init-panel", action="store_true")
     parser.add_argument("--is-enabled", choices=tuple(MODULES))
     args = parser.parse_args()
     if args.dispatch_due:
         dispatch_due()
+        return
+    if args.init_panel:
+        send_panel()
         return
     if args.is_enabled:
         sys.exit(0 if is_enabled(args.is_enabled) else 1)
