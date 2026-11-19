@@ -366,7 +366,7 @@ NEWS_STOPWORDS = {
 def news_fingerprint(text):
     title, body = news_parts(text)
     source = " ".join([title or "", *body[:2]]).casefold()
-    source = re.sub(r"https?://\\S+", " ", source)
+    source = re.sub(r"https?://\S+", " ", source)
     tokens = {
         token for token in re.findall(r"[а-яіїєґa-z0-9]{3,}", source)
         if token not in NEWS_STOPWORDS
@@ -491,7 +491,7 @@ def maybe_news(state, now):
                 if not assessment["relevant"]:
                     continue
                 digest = hashlib.sha256(
-                    re.sub(r"\\s+", " ", post["text"].casefold()).encode("utf-8")
+                    re.sub(r"\s+", " ", post["text"].casefold()).encode("utf-8")
                 ).hexdigest()
                 lead = make_news_lead(post["text"])
                 if digest in seen or not lead:
@@ -514,12 +514,12 @@ def maybe_news(state, now):
             print(f"Новини: не вдалося прочитати @{handle}: {error}")
 
     if source_errors and len(source_errors) == len(SOURCES):
-        notify_editorial_error("Не вдалося прочитати жодне джерело новин.\\n" + "\\n".join(source_errors[:5]))
+        notify_editorial_error("Не вдалося прочитати жодне джерело новин.\\n" + "\n".join(source_errors[:5]))
         return
 
     if not candidates:
         if source_errors:
-            notify_editorial_error("Частина джерел новин недоступна.\\n" + "\\n".join(source_errors[:5]))
+            notify_editorial_error("Частина джерел новин недоступна.\\n" + "\n".join(source_errors[:5]))
         print("Новини: немає свіжої доречної текстової публікації")
         return
 
