@@ -8,8 +8,9 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 try:
-    from bot_db import record_monitor_check, record_error
+    from bot_db import record_monitor_check, record_error, connection
 except ImportError:
+    connection = None
     def record_monitor_check(*args, **kwargs): return False
     def record_error(*args, **kwargs): return False
 
@@ -97,6 +98,36 @@ def check_schedule():
     return "ok", {"date": today, "queues": len(expected), "intervalsPerQueue": 48, "fetchedAt": fetched}
 
 
+def check_site():
+    try:
+        request = urllib.request.Request(
+            "https://svitlo-ua.vercel.app/poltava",
+            headers={"User-Agent": "PoltavaLightMonitor/1.0"},
+        )
+        with urllib.request.urlopen(request, timeout=15) as response:
+            body = response.read(300_000).decode("utf-8", errors="replace")
+            if response.status != 200 or "Світло.ua" not in body:
+                return "error", {"httpStatus": response.status, "titleFound": "Світло.ua" in body}
+            return "ok", {"httpStatus": response.status}
+    except Exception as error:
+        return "error", {"reason": str(error)[:500]}
+
+
+def check_database():
+    if not os.environ.get("NEON_DATABASE_URL"):
+        return "not-configured", {"reason": "NEON_DATABASE_URL ще не додано до GitHub Secrets"}
+    if connection is None:
+        return "error", {"reason": "Модуль підключення до БД недоступний"}
+    try:
+        with connection() as conn:
+            if conn is None:
+                return "error", {"reason": "Не вдалося відкрити з'єднання"}
+            conn.execute("SELECT 1")
+        return "ok", {"query": "SELECT 1"}
+    except Exception as error:
+        return "error", {"reason": str(error)[:500]}
+
+
 def main():
     statuses = {
         "оновлення джерела графіків": os.environ.get("REFRESH_STATUS", "unknown"),
@@ -116,6 +147,16 @@ def main():
     record_monitor_check("schedules", "актуальність графіка Полтавщини", schedule_status, details=schedule_details)
     if schedule_status != "ok":
         issues.append("• Перевірка графіка: " + str(schedule_details.get("reason", "невідома помилка")))
+
+    site_status, site_details = check_site()
+    record_monitor_check("website", "доступність сайту", site_status, details=site_details)
+    if site_status != "ok":
+        issues.append("• Сайт: " + str(site_details.get("reason", "HTTP " + str(site_details.get("httpStatus", "невідомо")))))
+
+    database_status, database_details = check_database()
+    record_monitor_check("database", "підключення до PostgreSQL", database_status, details=database_details)
+    if database_status == "error":
+        issues.append("• База даних: " + str(database_details.get("reason", "невідома помилка")))
 
     if not issues:
         print("Моніторинг: усі перевірки успішні")
