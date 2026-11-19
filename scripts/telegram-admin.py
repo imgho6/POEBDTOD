@@ -157,7 +157,8 @@ def clean_forwarded_news(raw_text):
     """Remove common promotional channel footers while preserving source credits."""
     lines = []
     promo = re.compile(
-        r"^(?:підпис(?:уйтесь|атися|атись)?|subscribe|наш канал|читайте нас|"
+        r"^[^\w]*(?:підпис(?:уйтесь|атися|атись|уйся)?|підпиш(?:ись|іться)|subscribe|"
+        r"наш(?: канал| телеграм| telegram)|читайте нас|слідкуйте за нами|"
         r"реклама|рекламна співпраця|для реклами|надсилайте новини|"
         r"запропонувати новину|зв'язок з адміном|наші соцмережі)\b.*$",
         re.IGNORECASE,
@@ -635,8 +636,9 @@ def process_message(update):
         forwarded = bool(message.get("forward_origin") or message.get("forward_from_chat") or message.get("forward_sender_name") or message.get("forward_date"))
         if forwarded:
             cleaned = clean_forwarded_news(text)
-            if media_type and len(cleaned) > 1024:
-                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Текст після очищення задовгий для підпису до медіа Telegram (максимум 1024 символи). Скороти його та надішли новину ще раз."})
+            limit = 1024 if media_type else 4096
+            if len(cleaned) > limit:
+                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": f"Текст після очищення задовгий для Telegram (максимум {limit} символів). Скороти його та надішли новину ще раз."})
                 return
             draft_id = conn.execute(
                 "INSERT INTO bot_admin_drafts (title, body, media_type, media_file_id, website_button) VALUES (%s,%s,%s,%s,TRUE) RETURNING id",
