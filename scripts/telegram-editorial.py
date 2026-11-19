@@ -568,6 +568,7 @@ def maybe_news(state, now):
             if len(source_errors) == len(SOURCES)
             else "Частина джерел новин недоступна."
         )
+        record_error("editorial_sources", label, {"errors": source_errors[:10]})
         notify_editorial_error(label + "\n" + "\n".join(source_errors[:5]))
 
     if not candidates:
@@ -593,9 +594,25 @@ def maybe_news(state, now):
         result = send_message(message)
     except Exception as error:
         print(f"Новини: не вдалося надіслати текстову публікацію: {error}")
+        record_error("editorial_publish", error, {"source": post.get("handle"), "post": post.get("post")})
+        notify_editorial_error("Не вдалося опублікувати новину: " + str(error))
         return
 
     post_id = result.get("message_id")
+    title, _ = news_parts(post["text"])
+    record_publication(
+        "news",
+        CHANNEL_ID,
+        post_id,
+        source_handle=post["handle"],
+        source_post=get_post_url(post["handle"], post),
+        content_hash=post["digest"],
+        title=title,
+        body=post["text"][:1800],
+        importance_score=post["importance_score"],
+        relevance_score=post["relevance_score"],
+        source_priority=post["source_priority"],
+    )
     # Позначаємо як прочитані й інші джерела з тією самою новиною,
     # щоб майже однакові передруки не прийшли наступним запуском.
     related = [
