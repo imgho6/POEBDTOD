@@ -1,11 +1,6 @@
 name: Register Telegram admin webhook
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - scripts/telegram-admin.py
-      - .github/workflows/register-telegram-webhook.yml
 permissions:
   contents: read
 jobs:
@@ -32,11 +27,3 @@ jobs:
         run: |
           SECRET="$(printf '%s' "${TELEGRAM_BOT_TOKEN}:poltava-light-telegram-webhook-v1" | sha256sum | cut -d' ' -f1)"
           curl --fail --silent --show-error             "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook"             -H "Content-Type: application/json"             --data-binary "$(jq -n --arg url 'https://svitlo-ua.vercel.app/api/telegram-admin' --arg secret "$SECRET" '{url:$url,secret_token:$secret,allowed_updates:["message","callback_query"],drop_pending_updates:false}')"
-
-      - name: Install Python dependencies
-        run: python -m pip install --disable-pip-version-check "psycopg[binary]"
-      - name: Create database tables and publish the admin panel
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
-        run: python scripts/telegram-admin.py --init-panel
