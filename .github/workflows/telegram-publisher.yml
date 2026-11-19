@@ -80,6 +80,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: "@PoltavaLight"
+          NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
         run: python scripts/telegram-schedules.py
 
       - name: Надіслати прогноз наступного півгодинного інтервалу
@@ -88,6 +89,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: "@PoltavaLight"
           TELEGRAM_BOUNDARY_ADVANCE_SECONDS: "900"
+          NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
         run: python scripts/telegram-schedules.py --status-only
 
       - name: Ранкові дописи, поради та новини (лише текст)
