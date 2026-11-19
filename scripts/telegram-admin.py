@@ -429,9 +429,17 @@ def process_callback(update):
             info = telegram("getChat", {"chat_id": PUBLIC_CHANNEL})
             pinned = info.get("pinned_message")
             if pinned:
-                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": f"Закріплено повідомлення ID {pinned['message_id']}.", "reply_markup": {"inline_keyboard": [[{"text": "📌 Відкріпити", "callback_data": f"unpin:{pinned['message_id']}"}]]}})
+                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": f"Закріплено повідомлення ID {pinned['message_id']}.", "reply_markup": {"inline_keyboard": [[{"text": "📌 Відкріпити", "callback_data": f"unpin:{pinned['message_id']}"}], [{"text": "📌 Закріпити інший допис", "callback_data": "published:pin:list"}]]}})
             else:
-                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Закріпленого повідомлення немає."})
+                rows = conn.execute("SELECT message_id, title, body FROM bot_publications WHERE chat_id=%s AND deleted_at IS NULL ORDER BY published_at DESC LIMIT 10", (PUBLIC_CHANNEL,)).fetchall()
+                buttons = [[{"text": f"📌 {(r[1] or r[2] or 'Допис')[:35]}", "callback_data": f"pin:{r[0]}"}] for r in rows]
+                buttons.append([{"text": "⬅️ До панелі", "callback_data": "menu"}])
+                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Закріпленого повідомлення немає. Обери допис:", "reply_markup": {"inline_keyboard": buttons}})
+        elif data == "published:pin:list":
+            rows = conn.execute("SELECT message_id, title, body FROM bot_publications WHERE chat_id=%s AND deleted_at IS NULL ORDER BY published_at DESC LIMIT 10", (PUBLIC_CHANNEL,)).fetchall()
+            buttons = [[{"text": f"📌 {(r[1] or r[2] or 'Допис')[:35]}", "callback_data": f"pin:{r[0]}"}] for r in rows]
+            buttons.append([{"text": "⬅️ До панелі", "callback_data": "menu"}])
+            telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Обери допис для закріплення:", "reply_markup": {"inline_keyboard": buttons}})
         elif data.startswith("unpin:"):
             telegram("unpinChatMessage", {"chat_id": PUBLIC_CHANNEL, "message_id": int(data.split(":", 1)[1])})
             telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Повідомлення відкріплено."})
