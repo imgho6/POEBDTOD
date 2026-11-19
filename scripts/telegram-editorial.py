@@ -26,12 +26,13 @@ TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 KYIV = ZoneInfo("Europe/Kyiv")
 USER_AGENT = "Mozilla/5.0 (compatible; PoltavaLightBot/1.0; +https://svitlo-ua.vercel.app)"
 
+# Вищий пріоритет мають першоджерела та офіційні установи.
 SOURCES = (
-    ("suspilnepoltava", "Суспільне Полтава", "local"),
-    ("poltavskaoda", "Полтавська ОВА", "local"),
-    ("suspilnenews", "Суспільне Новини", "national"),
-    ("ukrinform_news", "Укрінформ", "national"),
-    ("tch_channel", "ТСН", "national"),
+    ("poltavskaoda", "Полтавська ОВА", "local", 5),
+    ("ukrinform_news", "Укрінформ", "national", 5),
+    ("suspilnepoltava", "Суспільне Полтава", "local", 4),
+    ("suspilnenews", "Суспільне Новини", "national", 4),
+    ("tch_channel", "ТСН", "national", 2),
 )
 
 LOCAL_TERMS = (
@@ -251,27 +252,44 @@ def article_url(post):
     return get_post_url("", post)
 
 
-def relevant_post(handle, text, category):
-    lowered = text.casefold()
+def classify_news(handle, text, category):
+    """Окремо оцінює зв'язок з електропостачанням і важливість новини."""
+    lowered = " ".join(text.casefold().split())
     if any(term in lowered for term in EXCLUDE_TERMS):
-        return False
+        return {"relevant": False, "relevance": 0, "importance": 0}
 
-    # Перевіряємо саме вступ новини. Згадка про енергетику наприкінці
-    # довгої політичної статті не робить її новиною про електропостачання.
-    lead = " ".join(lowered.split())[:600]
-    is_power = any(term in lead for term in POWER_TERMS)
-    if not is_power:
-        return False
+    title, body = news_parts(text)
+    lead = " ".join([title or "", *body[:2]]).casefold()[:900]
+    power_hits = sum(
+        1 for term in POWER_TERMS
+        if (re.search(term, lead) if ".*" in term else term in lead)
+    )
+    if power_hits == 0:
+        return {"relevant": False, "relevance": 0, "importance": 0}
 
     is_local = any(term in lowered for term in LOCAL_TERMS)
-    if category == "local":
-        return is_local
-
-    # Національні новини допускаються лише тоді, коли вони прямо стосуються
-    # електропостачання та мають загальноукраїнський масштаб або прямо згадують Полтавщину.
     is_national = any(re.search(term, lowered) for term in NATIONAL_SCOPE_TERMS)
-    return is_local or is_national
+    relevant = is_local if category == "local" else (is_local or is_national)
+    if not relevant:
+        return {"relevant": False, "relevance": min(100, power_hits * 25), "importance": 0}
 
+    relevance = min(100, 45 + power_hits * 12 + (20 if is_local else 0) + (10 if is_national else 0))
+    urgent_terms = (
+        "аварійн", "масован", "пошкоджен", "знеструмлен", "без електроенергі",
+        "відновлен", "обмеженн", "дефіцит", "екстрен", "скасуван", "застосуван",
+    )
+    impact_terms = (
+        "споживач", "побутов", "населен", "област", "громад", "черг",
+        "графік", "відключ", "електропостач",
+    )
+    urgency = sum(1 for term in urgent_terms if term in lead)
+    impact = sum(1 for term in impact_terms if term in lead)
+    importance = min(100, 25 + urgency * 14 + impact * 6 + (12 if is_local else 0))
+    return {"relevant": True, "relevance": relevance, "importance": importance}
+
+
+def relevant_post(handle, text, category):
+    return classify_news(handle, text, category)["relevant"]
 
 def clean_source_text(text):
     """Прибирає рекламні/підписні хвости, не додаючи їх до допису каналу."""
@@ -338,15 +356,47 @@ def make_news_lead(text):
     return re.sub(r"[^\w]+", " ", title.casefold()).strip()
 
 
+NEWS_STOPWORDS = {
+    "та", "або", "але", "для", "про", "після", "перед", "через", "щодо",
+    "який", "яка", "яке", "які", "це", "цей", "ця", "що", "у", "в", "на",
+    "до", "від", "із", "за", "по", "як", "буде", "будуть", "стало",
+}
+
+
+def news_fingerprint(text):
+    title, body = news_parts(text)
+    source = " ".join([title or "", *body[:2]]).casefold()
+    source = re.sub(r"https?://\\S+", " ", source)
+    tokens = {
+        token for token in re.findall(r"[а-яіїєґa-z0-9]{3,}", source)
+        if token not in NEWS_STOPWORDS
+    }
+    return " ".join(sorted(tokens))
+
+
 def same_news_lead(left, right):
     if not left or not right:
         return False
     if left == right:
         return True
-    if min(len(left), len(right)) < 35:
+    if min(len(left), len(right)) < 28:
         return False
-    return SequenceMatcher(None, left, right).ratio() >= 0.90
+    if SequenceMatcher(None, left, right).ratio() >= 0.84:
+        return True
+    left_words, right_words = set(left.split()), set(right.split())
+    union = left_words | right_words
+    return bool(union) and len(left_words & right_words) / len(union) >= 0.72
 
+
+def same_news_content(left, right):
+    """Порівнює заголовок і зміст, щоб ловити перефразовані передруки."""
+    if same_news_lead(make_news_lead(left), make_news_lead(right)):
+        return True
+    left_words = set(news_fingerprint(left).split())
+    right_words = set(news_fingerprint(right).split())
+    if len(left_words) < 5 or len(right_words) < 5:
+        return False
+    return len(left_words & right_words) / len(left_words | right_words) >= 0.62
 
 def make_caption(post, source_name=None, handle=None):
     """Формує коротку новину з не більш ніж двох завершених речень."""
@@ -420,8 +470,10 @@ def maybe_news(state, now):
 
     seen = set(news_state.get("seen", []))
     seen_leads = list(news_state.get("seenLeads", []))
+    seen_stories = list(news_state.get("seenStories", []))
     candidates = []
-    for handle, source_name, category in SOURCES:
+    source_errors = []
+    for handle, source_name, category, source_priority in SOURCES:
         try:
             page = fetch_text(f"https://t.me/s/{handle}")
             parser = TelegramPostParser()
@@ -435,30 +487,51 @@ def maybe_news(state, now):
                     continue
                 if not post.get("text"):
                     continue
-                if not relevant_post(handle, post["text"], category):
+                assessment = classify_news(handle, post["text"], category)
+                if not assessment["relevant"]:
                     continue
                 digest = hashlib.sha256(
-                    re.sub(r"\s+", " ", post["text"].casefold()).encode("utf-8")
+                    re.sub(r"\\s+", " ", post["text"].casefold()).encode("utf-8")
                 ).hexdigest()
                 lead = make_news_lead(post["text"])
                 if digest in seen or not lead:
                     continue
                 if any(same_news_lead(lead, previous) for previous in seen_leads):
                     continue
+                if any(same_news_content(post["text"], previous.get("text", "")) for previous in seen_stories):
+                    continue
                 post["digest"] = digest
                 post["lead"] = lead
                 post["published_dt"] = published
                 post["source_name"] = source_name
+                post["source_priority"] = source_priority
+                post["relevance_score"] = assessment["relevance"]
+                post["importance_score"] = assessment["importance"]
                 post["handle"] = handle
                 candidates.append(post)
         except Exception as error:
+            source_errors.append(f"@{handle}: {error}")
             print(f"Новини: не вдалося прочитати @{handle}: {error}")
 
+    if source_errors and len(source_errors) == len(SOURCES):
+        notify_editorial_error("Не вдалося прочитати жодне джерело новин.\\n" + "\\n".join(source_errors[:5]))
+        return
+
     if not candidates:
+        if source_errors:
+            notify_editorial_error("Частина джерел новин недоступна.\\n" + "\\n".join(source_errors[:5]))
         print("Новини: немає свіжої доречної текстової публікації")
         return
 
-    candidates.sort(key=lambda item: item["published_dt"], reverse=True)
+    candidates.sort(
+        key=lambda item: (
+            item["importance_score"],
+            item["relevance_score"],
+            item["source_priority"],
+            item["published_dt"],
+        ),
+        reverse=True,
+    )
     post = candidates[0]
     message = make_news_message(post)
     if not message:
@@ -476,7 +549,7 @@ def maybe_news(state, now):
     # щоб майже однакові передруки не прийшли наступним запуском.
     related = [
         candidate for candidate in candidates
-        if same_news_lead(candidate["lead"], post["lead"])
+        if same_news_content(candidate["text"], post["text"])
     ]
     seen.update(candidate["digest"] for candidate in related)
     news_state["seen"] = list(dict.fromkeys([
@@ -486,6 +559,10 @@ def maybe_news(state, now):
     news_state["seenLeads"] = list(dict.fromkeys([
         *seen_leads, post["lead"],
     ]))[-100:]
+    news_state["seenStories"] = [
+        *seen_stories,
+        {"text": post["text"][:1800], "lead": post["lead"], "at": now.isoformat()},
+    ][-100:]
     news_state["lastSentAt"] = now.isoformat()
     news_state["lastMessageId"] = post_id
     news_state["lastSourcePost"] = get_post_url(post["handle"], post)
@@ -494,6 +571,20 @@ def maybe_news(state, now):
         f"Текстову новину надіслано: @{post['handle']} "
         f"(публікація {post.get('post', 'невідома')})"
     )
+
+
+def notify_editorial_error(message):
+    """Окреме повідомлення про збій редакційного модуля; не впливає на графіки."""
+    if not TOKEN:
+        print("Сповіщення редакційної помилки не надіслано: немає TELEGRAM_BOT_TOKEN")
+        return
+    try:
+        send_message(
+            "⚠️ <b>Помилка редакційного модуля</b>\\n\\n"
+            + html.escape(message[:2500])
+        )
+    except Exception as notify_error:
+        print(f"Не вдалося надіслати сповіщення редакційної помилки: {notify_error}")
 
 
 def main():
@@ -511,4 +602,5 @@ if __name__ == "__main__":
         main()
     except Exception as error:
         print(f"Помилка редакційних дописів: {error}")
+        notify_editorial_error(str(error))
         raise
