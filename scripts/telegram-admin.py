@@ -609,7 +609,7 @@ def process_callback(update):
                 obj = json.loads(session[1]) if session[1].startswith("{") else {"body": session[1]}
             except Exception:
                 obj = {"body": session[1]}
-            conn.execute("INSERT INTO bot_scheduled_posts (body, scheduled_at, created_by, media_type, media_file_id) VALUES (%s,%s,%s,%s,%s)", (obj.get("body", ""), when.astimezone(timezone.utc), ADMIN_ID, obj.get("media_type"), obj.get("media_file_id")))
+            conn.execute("INSERT INTO bot_scheduled_posts (body, scheduled_at, created_by, media_type, media_file_id, website_button) VALUES (%s,%s,%s,%s,%s,%s)", (obj.get("body", ""), when.astimezone(timezone.utc), ADMIN_ID, obj.get("media_type"), obj.get("media_file_id"), bool(obj.get("website_button"))))
             if obj.get("draft_id"):
                 conn.execute("DELETE FROM bot_admin_drafts WHERE id=%s", (obj["draft_id"],))
             clear_session(conn)
@@ -717,9 +717,9 @@ def process_message(update):
             except Exception:
                 scheduled_obj = {"body": session[1]}
             conn.execute("""
-                INSERT INTO bot_scheduled_posts (body, scheduled_at, created_by, media_type, media_file_id)
-                VALUES (%s, %s, %s, %s, %s)
-            """, (scheduled_obj.get("body", ""), local.astimezone(timezone.utc), ADMIN_ID, scheduled_obj.get("media_type"), scheduled_obj.get("media_file_id")))
+                INSERT INTO bot_scheduled_posts (body, scheduled_at, created_by, media_type, media_file_id, website_button)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (scheduled_obj.get("body", ""), local.astimezone(timezone.utc), ADMIN_ID, scheduled_obj.get("media_type"), scheduled_obj.get("media_file_id"), bool(scheduled_obj.get("website_button"))))
             if scheduled_obj.get("draft_id"):
                 conn.execute("DELETE FROM bot_admin_drafts WHERE id=%s", (scheduled_obj["draft_id"],))
             clear_session(conn)
@@ -757,21 +757,22 @@ def dispatch_due():
             raise RuntimeError("Neon database unavailable")
         ensure_admin_schema(conn)
         rows = conn.execute("""
-            SELECT id, body, media_type, media_file_id FROM bot_scheduled_posts
+            SELECT id, body, media_type, media_file_id, website_button FROM bot_scheduled_posts
             WHERE status = 'scheduled' AND scheduled_at <= NOW()
             ORDER BY scheduled_at
             LIMIT 10
             FOR UPDATE SKIP LOCKED
         """).fetchall()
-        for post_id, body, media_type, media_file_id in rows:
+        for post_id, body, media_type, media_file_id, website_button in rows:
             conn.execute("UPDATE bot_scheduled_posts SET status = 'sending' WHERE id = %s", (post_id,))
             try:
+                extra = {"reply_markup": website_keyboard()} if website_button else {}
                 if media_type == "photo":
-                    result = telegram("sendPhoto", {"chat_id": PUBLIC_CHANNEL, "photo": media_file_id, "caption": (body or "")[:1024]})
+                    result = telegram("sendPhoto", {"chat_id": PUBLIC_CHANNEL, "photo": media_file_id, "caption": (body or "")[:1024], **extra})
                 elif media_type == "video":
-                    result = telegram("sendVideo", {"chat_id": PUBLIC_CHANNEL, "video": media_file_id, "caption": (body or "")[:1024]})
+                    result = telegram("sendVideo", {"chat_id": PUBLIC_CHANNEL, "video": media_file_id, "caption": (body or "")[:1024], **extra})
                 else:
-                    result = telegram("sendMessage", {"chat_id": PUBLIC_CHANNEL, "text": body, "disable_web_page_preview": True})
+                    result = telegram("sendMessage", {"chat_id": PUBLIC_CHANNEL, "text": body, "disable_web_page_preview": True, **extra})
                 conn.execute("""
                     UPDATE bot_scheduled_posts
                     SET status = 'sent', sent_at = NOW(), telegram_message_id = %s, last_error = NULL
