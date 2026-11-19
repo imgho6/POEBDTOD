@@ -40,48 +40,40 @@ def load_json(path):
 
 
 def check_schedule(now):
-    date_key = now.date().isoformat()
-    path = ROOT / f"{date_key}.json"
-    if not path.exists():
-        return [f"Немає файлу графіка на сьогодні ({date_key})."]
-    data = load_json(path)
-    queues = data.get("queues")
-    if not isinstance(queues, dict):
-        return ["Файл сьогоднішнього графіка має некоректну структуру."]
+    """Перевіряє актуальну дату та повноту офіційного набору графіків Полтавщини."""
+    url = "https://raw.githubusercontent.com/yaroslav2901/OE_OUTAGE_DATA/main/data/Poltavaoblenergo.json"
+    request = urllib.request.Request(url, headers={"User-Agent": "PoltavaLight-Monitor/1.0"})
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as error:
+        return [f"Джерело графіків Полтавщини недоступне: {error}"]
 
-    problems = []
-    missing = sorted(EXPECTED_QUEUES - set(queues))
-    extra = sorted(set(queues) - EXPECTED_QUEUES)
+    timestamp = payload.get("fact", {}).get("today")
+    if not timestamp:
+        return ["У джерелі графіків немає дати поточного розкладу."]
+    try:
+        schedule_date = datetime.fromtimestamp(int(timestamp), KYIV).date()
+    except (TypeError, ValueError, OSError):
+        return ["Джерело графіків повернуло некоректну дату."]
+    if schedule_date != now.date():
+        return [f"Джерело графіків показує {schedule_date.isoformat()}, очікується {now.date().isoformat()}."]
+
+    day = payload.get("fact", {}).get("data", {}).get(str(timestamp))
+    if not isinstance(day, dict):
+        return ["У джерелі відсутні дані графіка на поточну дату."]
+
+    expected = {f"GPV{queue}.{sub}" for queue in range(1, 7) for sub in (1, 2)}
+    missing = sorted(expected - set(day))
     if missing:
-        problems.append("У графіку відсутні підчерги: " + ", ".join(missing))
-    if extra:
-        problems.append("У графіку є невідомі підчерги: " + ", ".join(extra))
-    for queue in sorted(EXPECTED_QUEUES & set(queues)):
-        values = queues[queue]
-        if not isinstance(values, list) or len(values) != 48:
-            problems.append(f"Підчерга {queue} не містить 48 півгодинних інтервалів.")
-        elif any(value not in VALID_STATES for value in values):
-            problems.append(f"Підчерга {queue} містить невідомий стан.")
-
-    fetched_at = parse_datetime(data.get("fetchedAt"))
-    if not fetched_at:
-        problems.append("У графіку відсутній коректний час отримання fetchedAt.")
-    elif now - fetched_at > MAX_SCHEDULE_AGE:
-        age_minutes = int((now - fetched_at).total_seconds() // 60)
-        problems.append(f"Дані графіка не оновлювалися {age_minutes} хвилин.")
-    return problems
-
-
-def check_bot_state(now):
-    state = load_json(ROOT / "telegram-state.json")
-    sent_at = parse_datetime(state.get("statusMessages", {}).get("sentAt"))
-    if not sent_at:
-        return ["У стані бота немає часу останнього півгодинного прогнозу."]
-    age = now - sent_at
-    if age > MAX_STATUS_AGE:
-        return [f"Останній півгодинний прогноз був {int(age.total_seconds() // 60)} хв тому."]
+        return ["У джерелі відсутні підчерги: " + ", ".join(missing)]
+    malformed = [
+        name for name in sorted(expected)
+        if not isinstance(day.get(name), dict) or len(day[name]) != 24
+    ]
+    if malformed:
+        return ["Некоректні погодинні дані для підчерг: " + ", ".join(malformed)]
     return []
-
 
 def check_website():
     request = urllib.request.Request(SITE_URL, headers={"User-Agent": "PoltavaLight-Monitor/1.0"})
@@ -119,7 +111,7 @@ def telegram_send(message):
 
 def main():
     now = datetime.now(KYIV)
-    issues = check_schedule(now) + check_bot_state(now) + check_website()
+    issues = check_schedule(now) + check_website()
     workflow_name = os.environ.get("MONITORED_WORKFLOW_NAME", "")
     conclusion = os.environ.get("MONITORED_WORKFLOW_CONCLUSION", "")
     workflow_url = os.environ.get("MONITORED_WORKFLOW_URL", "")
