@@ -166,7 +166,10 @@ def process_callback(update):
     data = query.get("data", "")
     message = query.get("message") or {}
     chat = message.get("chat") or {}
-    chat_id = chat.get("id", ADMIN_CHANNEL)
+    chat_id = chat.get("id")
+    if chat_id not in (int(ADMIN_CHANNEL), ADMIN_ID):
+        telegram("answerCallbackQuery", {"callback_query_id": query["id"], "text": "Ця панель недоступна в цьому чаті.", "show_alert": True})
+        return
     message_id = message.get("message_id")
     telegram("answerCallbackQuery", {"callback_query_id": query["id"], "text": "Відкрий приватний чат із ботом, натисни Start і надішли /post.", "show_alert": True} if data == "compose" else {"callback_query_id": query["id"]})
 
