@@ -68,5 +68,53 @@ class EditorialFilterTests(unittest.TestCase):
         self.assertNotIn("Facebook", caption)
 
 
+    def test_news_is_short_and_never_ends_with_an_ellipsis(self):
+        post = {
+            "text": (
+                "У китайському місті Шеньчжень розпочалися тристоронні перемовини "
+                "за участі президента США Дональда Трампа, лідера Китаю Сі Цзіньпіна "
+                "та очільника Кремля Володимира Путіна. "
+                "Це перша зустріч такого формату за участі лідерів трьох держав. "
+                "Перші заяви Трампа: Трамп заявив про скорочення ядерних озброєнь. "
+                "Окрім цього, він сказав ще багато довгих речей. "
+                "Путін говорив про енергетичну…"
+            )
+        }
+        message = editorial.make_news_message(post)
+        self.assertIsNotNone(message)
+        self.assertLessEqual(len(message), 450)
+        self.assertNotIn("…", message)
+        self.assertNotIn("...", message)
+        self.assertNotIn("Окрім цього", message)
+
+    def test_rejects_geopolitical_story_with_only_a_late_energy_mention(self):
+        text = (
+            "У Шеньчжені розпочалися тристоронні перемовини за участі лідерів "
+            "США, Китаю та Росії. Перші заяви стосувалися глобальної безпеки. "
+            "Наприкінці зустрічі обговорили енергетичну безпеку."
+        )
+        self.assertFalse(editorial.relevant_post("ukrinform_news", text, "national"))
+
+    def test_similar_leads_are_detected_as_the_same_story(self):
+        first = editorial.make_news_lead(
+            "На Полтавщині змінять графіки погодинних відключень електроенергії."
+        )
+        second = editorial.make_news_lead(
+            "На Полтавщині змінять графіки погодинних відключень електроенергії!"
+        )
+        self.assertTrue(editorial.same_news_lead(first, second))
+
+    def test_incomplete_trailing_fragment_is_not_published(self):
+        post = {
+            "text": (
+                "На Полтавщині змінять графіки відключень електроенергії. "
+                "Рішення ухвалили після перевірки мереж. "
+                "Деталі повідомлять згодом, енергетичну…"
+            )
+        }
+        message = editorial.make_news_message(post)
+        self.assertNotIn("енергетичну", message)
+
+
 if __name__ == "__main__":
     unittest.main()
