@@ -36,7 +36,7 @@ def ensure_schema(conn):
             relevance_score INTEGER,
             source_priority INTEGER,
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            published_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             deleted_at TIMESTAMPTZ,
             UNIQUE (chat_id, message_id)
         )
