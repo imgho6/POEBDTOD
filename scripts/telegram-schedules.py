@@ -647,7 +647,7 @@ def send_status_message(schedule, state, now):
         "sentAt": now.isoformat(),
     })
     record_publication("half_hour_forecast", CHANNEL_ID, result["result"]["message_id"],
-                       body=message[:1800])
+                       body=text[:1800])
     state["statusMessageIds"] = status_messages[-300:]
 
     status_state["lastKey"] = message_key
