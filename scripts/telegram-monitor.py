@@ -168,7 +168,10 @@ def main():
         record_error("database", reason, database_details)
 
     if not issues:
-        print("Моніторинг: усі перевірки успішні")
+        if database_status == "not-configured":
+            print("Моніторинг: активні перевірки успішні; PostgreSQL очікує секрет NEON_DATABASE_URL")
+        else:
+            print("Моніторинг: усі перевірки успішні")
         return
 
     message = "Виявлено проблеми:\n" + "\n".join(issues)
