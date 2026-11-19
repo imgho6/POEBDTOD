@@ -331,7 +331,16 @@ def process_callback(update):
     user = query.get("from", {})
     if user.get("id") != ADMIN_ID:
         return
-    telegram("answerCallbackQuery", {"callback_query_id": query.get("id")})
+    # GitHub Actions starts asynchronously, so Telegram's short callback
+    # acknowledgement window may already have expired by the time this runs.
+    # A stale callback answer must not prevent the actual admin action.
+    try:
+        telegram("answerCallbackQuery", {"callback_query_id": query.get("id")})
+    except RuntimeError as error:
+        message_text = str(error)
+        if "query is too old" not in message_text and "query ID is invalid" not in message_text:
+            raise
+        print(f"WARNING: callback acknowledgement expired; continuing action: {message_text}")
     data = query.get("data", "")
     message = query.get("message") or {}
     chat = message.get("chat") or {}
