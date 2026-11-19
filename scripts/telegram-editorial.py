@@ -379,16 +379,30 @@ NEWS_STOPWORDS = {
 }
 
 
+NEWS_SUFFIXES = (
+    "ування", "ювання", "ення", "ання", "іння", "ями", "ами", "ого", "ому",
+    "ими", "ій", "ої", "ою", "ів", "ей", "ах", "ях", "ам", "ям", "ом",
+    "ем", "ею", "ий", "а", "я", "і", "и", "у", "ю", "о", "е",
+)
+
+
+def normalize_news_token(token):
+    for suffix in NEWS_SUFFIXES:
+        if len(token) - len(suffix) >= 4 and token.endswith(suffix):
+            return token[:-len(suffix)]
+    return token
+
+
 def news_fingerprint(text):
     title, body = news_parts(text)
     source = " ".join([title or "", *body[:2]]).casefold()
-    source = re.sub(r"https?://\S+", " ", source)
+    source = re.sub(r"https?://\\S+", " ", source)
     tokens = {
-        token for token in re.findall(r"[а-яіїєґa-z0-9]{3,}", source)
+        normalize_news_token(token)
+        for token in re.findall(r"[а-яіїєґa-z0-9]{3,}", source)
         if token not in NEWS_STOPWORDS
     }
     return " ".join(sorted(tokens))
-
 
 def same_news_lead(left, right):
     if not left or not right:
@@ -412,7 +426,26 @@ def same_news_content(left, right):
     right_words = set(news_fingerprint(right).split())
     if len(left_words) < 5 or len(right_words) < 5:
         return False
-    return len(left_words & right_words) / len(left_words | right_words) >= 0.62
+    union = left_words | right_words
+    exact_overlap = len(left_words & right_words) / len(union) if union else 0
+    if exact_overlap >= 0.50:
+        return True
+
+    # Порівнюємо словоформи та відмінки, не вимагаючи однакового тексту.
+    unmatched = set(right_words)
+    matched = 0
+    for left_word in left_words:
+        best = next((
+            right_word for right_word in unmatched
+            if (
+                left_word.startswith(right_word) or right_word.startswith(left_word)
+                or SequenceMatcher(None, left_word, right_word).ratio() >= 0.78
+            )
+        ), None)
+        if best:
+            unmatched.remove(best)
+            matched += 1
+    return matched / max(len(left_words), len(right_words)) >= 0.55
 
 def make_caption(post, source_name=None, handle=None):
     """Формує коротку новину з не більш ніж двох завершених речень."""
