@@ -777,7 +777,7 @@ def send_test_messages(schedule, state, now):
 
 
 
-def send_photo(image, caption):
+def send_photo(image, caption, schedule=None):
     import io
     buffer = io.BytesIO()
     image.save(buffer, format="PNG", optimize=True)
@@ -804,8 +804,13 @@ def send_photo(image, caption):
         "Telegram-графік",
         timeout=60,
     )
-    record_publication("schedule_image", CHANNEL_ID, result.get("result", {}).get("message_id"),
-                       title=f"Графік на {schedule.get('date', '')}")
+    schedule_date = schedule.get("date", "") if isinstance(schedule, dict) else ""
+    record_publication(
+        "schedule_image",
+        CHANNEL_ID,
+        result.get("result", {}).get("message_id"),
+        title=f"Графік на {schedule_date}" if schedule_date else "Графік відключень",
+    )
     print("Telegram: фото успішно надіслано")
 
 def build_hourly_message(schedule, now):
