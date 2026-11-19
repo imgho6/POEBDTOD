@@ -137,5 +137,32 @@ class EditorialFilterTests(unittest.TestCase):
         self.assertNotIn("енергетичну", message)
 
 
+    def test_importance_and_relevance_scores_are_calculated(self):
+        text = (
+            "На Полтавщині аварійно знеструмлено тисячі споживачів через пошкодження електромереж. "
+            "Енергетики відновлюють електропостачання."
+        )
+        result = editorial.classify_news("poltavskaoda", text, "local")
+        self.assertTrue(result["relevant"])
+        self.assertGreater(result["relevance"], 0)
+        self.assertGreater(result["importance"], 40)
+
+    def test_official_sources_have_higher_priority_than_commercial_media(self):
+        priorities = {source[0]: source[3] for source in editorial.SOURCES}
+        self.assertGreater(priorities["poltavskaoda"], priorities["tch_channel"])
+        self.assertGreater(priorities["ukrinform_news"], priorities["tch_channel"])
+
+    def test_semantically_similar_news_with_changed_headline_are_detected(self):
+        first = (
+            "На Полтавщині графіки погодинних відключень електроенергії змінять завтра "
+            "після ремонту підстанції."
+        )
+        second = (
+            "У Полтавській області завтра зміняться графіки погодинних відключень світла "
+            "після ремонту підстанції."
+        )
+        self.assertTrue(editorial.same_news_content(first, second))
+
+
 if __name__ == "__main__":
     unittest.main()
