@@ -213,7 +213,7 @@ def process_callback(update):
                 buttons = []
                 for post_id, text, when in rows:
                     preview = text[:100] + ("…" if len(text) > 100 else "")
-                    lines.append(f"\\n<b>#{post_id}</b> · {when.astimezone(KYIV):%d.%m.%Y %H:%M}\\n{html.escape(preview)}")
+                    lines.append(f"\n<b>#{post_id}</b> · {when.astimezone(KYIV):%d.%m.%Y %H:%M}\n{html.escape(preview)}")
                     buttons.append([{"text": f"Скасувати #{post_id}", "callback_data": f"cancel:{post_id}"}])
                 buttons.append([{"text": "⬅️ Назад", "callback_data": "menu"}])
                 body = "\n".join(lines)
@@ -293,7 +293,7 @@ def process_message(update):
                 set_session(conn, "confirm_draft", text)
                 telegram("sendMessage", {
                     "chat_id": ADMIN_ID,
-                    "text": "Попередній перегляд допису:\\n\\n" + text + "\\n\\nЩо робимо?",
+                    "text": "Попередній перегляд допису:\n\n" + text + "\n\nЩо робимо?",
                     "reply_markup": {"inline_keyboard": [[
                         {"text": "🚀 Опублікувати зараз", "callback_data": "draft:now"},
                         {"text": "🗓 Запланувати", "callback_data": "draft:schedule"},
