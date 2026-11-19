@@ -168,7 +168,7 @@ def process_callback(update):
     chat = message.get("chat") or {}
     chat_id = chat.get("id", ADMIN_CHANNEL)
     message_id = message.get("message_id")
-    telegram("answerCallbackQuery", {"callback_query_id": query["id"]})
+    telegram("answerCallbackQuery", {"callback_query_id": query["id"], "text": "Відкрий приватний чат із ботом, натисни Start і надішли /post.", "show_alert": True} if data == "compose" else {"callback_query_id": query["id"]})
 
     with db_connection() as conn:
         if conn is None:
@@ -199,10 +199,7 @@ def process_callback(update):
                 "parse_mode": "HTML", "reply_markup": modules_keyboard(conn),
             })
         elif data == "compose":
-            telegram("sendMessage", {
-                "chat_id": ADMIN_ID,
-                "text": "Для створення допису відкрий приватний чат із ботом і надішли /start, потім /post. Якщо ще не запускав бота, натисни Start у приватному чаті.",
-            })
+            pass
         elif data == "posts":
             rows = conn.execute("""
                 SELECT id, body, scheduled_at FROM bot_scheduled_posts
