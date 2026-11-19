@@ -23,6 +23,7 @@ jobs:
           python - <<'PY'
           import json
           import os
+          import urllib.error
           import urllib.parse
           import urllib.request
 
@@ -36,8 +37,17 @@ jobs:
               data=payload,
               method="POST",
           )
-          with urllib.request.urlopen(request, timeout=30) as response:
-              result = json.load(response)
+          try:
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  result = json.load(response)
+          except urllib.error.HTTPError as error:
+              try:
+                  details = json.load(error)
+              except Exception:
+                  details = {"description": error.reason}
+              raise SystemExit(
+                  f"Telegram API rejected deletion: {details.get('description', 'unknown error')}"
+              )
 
           if not result.get("ok"):
               raise SystemExit(result.get("description", "Telegram deleteMessage failed"))
