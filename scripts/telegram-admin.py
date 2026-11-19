@@ -109,10 +109,10 @@ def back_keyboard():
 
 
 POST_TEMPLATES = {
-    "schedule": ("📊 Оновлення графіка", "📊 <b>Оновлення графіка відключень</b>\n\nОпубліковано актуальний графік для Полтавщини.\n\n🔗 Деталі: "),
-    "alert": ("🚨 Термінове повідомлення", "🚨 <b>Увага!</b>\n\n[Текст повідомлення]\n\nСтежте за оновленнями."),
-    "news": ("📰 Новина", "📰 <b>[Заголовок]</b>\n\n[Текст новини]\n\n🔗 Детальніше: "),
-    "notice": ("📢 Оголошення", "📢 <b>Оголошення</b>\n\n[Текст оголошення]"),
+    "schedule": ("📊 Оновлення графіка", "📊 Оновлення графіка відключень\n\nОпубліковано актуальний графік для Полтавщини.\n\n🔗 Деталі: "),
+    "alert": ("🚨 Термінове повідомлення", "🚨 Увага!\n\n[Текст повідомлення]\n\nСтежте за оновленнями."),
+    "news": ("📰 Новина", "📰 [Заголовок]\n\n[Текст новини]\n\n🔗 Детальніше: "),
+    "notice": ("📢 Оголошення", "📢 Оголошення\n\n[Текст оголошення]"),
 }
 
 
@@ -418,7 +418,7 @@ def process_callback(update):
         elif data.startswith("pin:"):
             post_id = int(data.split(":", 1)[1])
             telegram("pinChatMessage", {"chat_id": PUBLIC_CHANNEL, "message_id": post_id, "disable_notification": True})
-            telegram("answerCallbackQuery", {"callback_query_id": query.get("id"), "text": "Допис закріплено"})
+            telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "📌 Допис закріплено в каналі."})
         elif data == "draft:edit":
             session = get_session(conn)
             if session and session[1]:
