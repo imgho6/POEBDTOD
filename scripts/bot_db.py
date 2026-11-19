@@ -29,8 +29,6 @@ def connection():
     try:
         with conn:
             yield conn
-    except Exception as error:
-        print(f"Помилка транзакції PostgreSQL: {error}")
     finally:
         conn.close()
 
