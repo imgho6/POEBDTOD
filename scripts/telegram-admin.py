@@ -278,6 +278,7 @@ def process_callback(update):
     user = query.get("from", {})
     if user.get("id") != ADMIN_ID:
         return
+    telegram("answerCallbackQuery", {"callback_query_id": query.get("id")})
     data = query.get("data", "")
     message = query.get("message") or {}
     chat = message.get("chat") or {}
@@ -394,6 +395,9 @@ def process_message(update):
             telegram("sendMessage", {"chat_id": ADMIN_ID, "text": renderers[text](), "parse_mode": "HTML", "reply_markup": menu_keyboard()})
         elif text == "/help":
             telegram("sendMessage", {"chat_id": ADMIN_ID, "text": config_text(conn), "parse_mode": "HTML", "reply_markup": menu_keyboard()})
+        elif text in ("/cancel", "/cancel_draft"):
+            clear_session(conn)
+            telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Поточну дію скасовано."})
         elif text.startswith("/at "):
             session = get_session(conn)
             if not session or session[0] != "awaiting_schedule" or not session[1]:
