@@ -12,6 +12,13 @@ from zoneinfo import ZoneInfo
 
 from PIL import Image, ImageDraw, ImageFont
 
+try:
+    from bot_db import record_publication, mark_deleted, record_error
+except ImportError:
+    def record_publication(*args, **kwargs): return False
+    def mark_deleted(*args, **kwargs): return False
+    def record_error(*args, **kwargs): return False
+
 ROOT = Path("public/data/schedules")
 STATE_PATH = Path(os.environ.get("TELEGRAM_STATE_PATH", str(ROOT / "telegram-state.json")))
 CHANNEL_ID = os.environ.get("TELEGRAM_CHAT_ID", "@PoltavaLight")
@@ -639,6 +646,8 @@ def send_status_message(schedule, state, now):
         "message_id": result["result"]["message_id"],
         "sentAt": now.isoformat(),
     })
+    record_publication("half_hour_forecast", CHANNEL_ID, result["result"]["message_id"],
+                       body=message[:1800])
     state["statusMessageIds"] = status_messages[-300:]
 
     status_state["lastKey"] = message_key
@@ -700,6 +709,7 @@ def cleanup_status_messages(state, now):
                 f"Видалення півгодинного прогнозу {message_id}",
                 timeout=20,
             )
+            mark_deleted(CHANNEL_ID, message_id, "півгодинний прогноз старший за дві години")
             deleted += 1
         except Exception as error:
             # Залишаємо запис, якщо Telegram не підтвердив видалення.
@@ -787,13 +797,15 @@ def send_photo(image, caption):
     body.extend(b"Content-Type: image/png\r\n\r\n")
     body.extend(buffer.getvalue())
     body.extend(f"\r\n--{boundary}--\r\n".encode())
-    telegram_request(
+    result = telegram_request(
         f"https://api.telegram.org/bot{TOKEN}/sendPhoto",
         bytes(body),
         {"Content-Type": f"multipart/form-data; boundary={boundary}"},
         "Telegram-графік",
         timeout=60,
     )
+    record_publication("schedule_image", CHANNEL_ID, result.get("result", {}).get("message_id"),
+                       title=f"Графік на {schedule.get('date', '')}")
     print("Telegram: фото успішно надіслано")
 
 def build_hourly_message(schedule, now):
@@ -852,13 +864,15 @@ def send_schedule_update(message):
             ]]
         },
     }).encode("utf-8")
-    telegram_request(
+    result = telegram_request(
         f"https://api.telegram.org/bot{TOKEN}/sendMessage",
         payload,
         {"Content-Type": "application/json"},
         "Повідомлення про оновлення графіка",
         timeout=35,
     )
+    record_publication("schedule_change", CHANNEL_ID, result.get("result", {}).get("message_id"),
+                       body=message[:1800])
     print("Telegram: повідомлення про оновлення графіка успішно надіслано")
 
 
@@ -869,13 +883,15 @@ def send_message(message):
         "parse_mode": "HTML",
         "disable_web_page_preview": True,
     }).encode("utf-8")
-    telegram_request(
+    result = telegram_request(
         f"https://api.telegram.org/bot{TOKEN}/sendMessage",
         payload,
         {"Content-Type": "application/json"},
         "Telegram-повідомлення",
         timeout=35,
     )
+    record_publication("hourly_status", CHANNEL_ID, result.get("result", {}).get("message_id"),
+                       body=message[:1800])
     print("Telegram: погодинне повідомлення успішно надіслано")
 
 def publish_hourly_report(state, schedule, now):
@@ -963,4 +979,5 @@ if __name__ == "__main__":
         main()
     except Exception as error:
         print(f"Помилка Telegram-публікації: {error}", file=sys.stderr)
+        record_error("telegram_schedules", error)
         raise
