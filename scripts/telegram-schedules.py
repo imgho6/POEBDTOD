@@ -662,31 +662,12 @@ def send_status_message(schedule, state, now):
 
 
 def cleanup_status_messages(state, now):
-    """Раз на дві години видаляє лише прогнози, яким уже виповнилося дві години."""
+    """Під час кожного запуску прибирає прогнози, старші за дві години."""
     from datetime import timedelta
 
     cleanup_state = state.setdefault("statusCleanup", {})
-    last_run_text = cleanup_state.get("lastRunAt")
-    try:
-        last_run = datetime.fromisoformat(last_run_text) if last_run_text else None
-    except (TypeError, ValueError):
-        last_run = None
-
-    # Після оновлення логіки починаємо новий двогодинний цикл, нічого не видаляючи.
-    if last_run is None:
-        cleanup_state["lastRunAt"] = now.isoformat()
-        save_state(state)
-        print("Очищення прогнозів: запущено двогодинний цикл")
-        return
-
-    if last_run.tzinfo is None:
-        last_run = last_run.replace(tzinfo=KYIV)
-    if (now - last_run) < timedelta(hours=2):
-        remaining_seconds = int((timedelta(hours=2) - (now - last_run)).total_seconds())
-        print(f"Очищення прогнозів пропущено: наступна перевірка приблизно через {remaining_seconds // 60} хв")
-        return
-
     cutoff = now - timedelta(hours=2)
+
     messages = state.setdefault("statusMessageIds", [])
     remaining = []
     deleted = 0
