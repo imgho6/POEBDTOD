@@ -2,6 +2,7 @@
 """Private Telegram admin panel and scheduled public-channel posts."""
 import argparse
 import json
+import html
 import os
 import re
 import sys
@@ -233,6 +234,9 @@ def process_callback(update):
             result = telegram("sendMessage", {"chat_id": PUBLIC_CHANNEL, "text": session[1], "disable_web_page_preview": True})
             clear_session(conn)
             telegram("sendMessage", {"chat_id": ADMIN_ID, "text": f"Допис опубліковано в @{PUBLIC_CHANNEL.lstrip('@')}. ID повідомлення: {result.get('message_id')}."})
+        elif data == "draft:cancel":
+            clear_session(conn)
+            telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Чернетку скасовано."})
         elif data == "draft:schedule":
             set_session(conn, "awaiting_schedule", get_session(conn)[1] if get_session(conn) else None)
             telegram("sendMessage", {
