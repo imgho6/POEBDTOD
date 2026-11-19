@@ -12,6 +12,7 @@ on:
       - scripts/telegram-editorial.py
       - scripts/telegram-monitor.py
       - scripts/bot_db.py
+      - scripts/telegram-admin.py
       - scripts/update-schedules.mjs
       - scripts/test_telegram_editorial.py
       - scripts/test_telegram_schedules.py
