@@ -19,6 +19,14 @@ from html.parser import HTMLParser
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+try:
+    from bot_db import load_news_state, save_news_state, record_publication, record_error
+except ImportError:
+    def load_news_state(): return None
+    def save_news_state(value): return False
+    def record_publication(*args, **kwargs): return False
+    def record_error(*args, **kwargs): return False
+
 ROOT = Path("public/data/schedules")
 STATE_PATH = Path(os.environ.get("TELEGRAM_STATE_PATH", str(ROOT / "telegram-state.json")))
 CHANNEL_ID = os.environ.get("TELEGRAM_CHAT_ID", "@PoltavaLight")
@@ -95,9 +103,13 @@ VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link",
 def load_state():
     try:
         value = json.loads(STATE_PATH.read_text(encoding="utf-8"))
-        return value if isinstance(value, dict) else {"entries": {}}
+        state = value if isinstance(value, dict) else {"entries": {}}
     except (OSError, json.JSONDecodeError):
-        return {"entries": {}}
+        state = {"entries": {}}
+    database_state = load_news_state()
+    if isinstance(database_state, dict):
+        state["editorial"] = database_state
+    return state
 
 
 def save_state(state):
@@ -106,6 +118,7 @@ def save_state(state):
         json.dumps(state, ensure_ascii=False, separators=(",", ":")),
         encoding="utf-8",
     )
+    save_news_state(state.get("editorial", {}))
 
 
 def telegram_request(method, payload, content_type="application/json"):
@@ -131,7 +144,10 @@ def send_message(text):
         "parse_mode": "HTML",
         "disable_web_page_preview": True,
     }).encode("utf-8")
-    return telegram_request("sendMessage", payload)
+    result = telegram_request("sendMessage", payload)
+    record_publication("editorial", CHANNEL_ID, result.get("message_id"),
+                      body=text[:1800])
+    return result
 
 
 def fetch_text(url, timeout=20):
@@ -519,7 +535,7 @@ def maybe_news(state, now):
             if len(source_errors) == len(SOURCES)
             else "Частина джерел новин недоступна."
         )
-        notify_editorial_error(label + "\\n" + "\\n".join(source_errors[:5]))
+        notify_editorial_error(label + "\n" + "\n".join(source_errors[:5]))
 
     if not candidates:
         print("Новини: немає свіжої доречної текстової публікації")
@@ -593,7 +609,7 @@ def notify_editorial_error(message):
             print("Сповіщення про цю помилку вже надсилалося протягом останніх 6 годин")
             return
         send_message(
-            "⚠️ <b>Помилка редакційного модуля</b>\\n\\n"
+            "⚠️ <b>Помилка редакційного модуля</b>\n\n"
             + html.escape(message[:2500])
         )
         editorial["lastErrorFingerprint"] = fingerprint
@@ -617,5 +633,6 @@ if __name__ == "__main__":
         main()
     except Exception as error:
         print(f"Помилка редакційних дописів: {error}")
+        record_error("editorial", error)
         notify_editorial_error(str(error))
         raise
