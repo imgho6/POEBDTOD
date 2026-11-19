@@ -66,6 +66,12 @@ def ensure_admin_schema(conn):
         )
     """)
     conn.execute("""
+        CREATE TABLE IF NOT EXISTS bot_processed_updates (
+            update_id BIGINT PRIMARY KEY,
+            processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """)
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS bot_scheduled_posts (
             id BIGSERIAL PRIMARY KEY,
             body TEXT NOT NULL,
@@ -161,17 +167,14 @@ def process_callback(update):
     query = update["callback_query"]
     user = query.get("from", {})
     if user.get("id") != ADMIN_ID:
-        telegram("answerCallbackQuery", {"callback_query_id": query["id"], "text": "Немає доступу", "show_alert": True})
         return
     data = query.get("data", "")
     message = query.get("message") or {}
     chat = message.get("chat") or {}
     chat_id = chat.get("id")
     if chat_id not in (int(ADMIN_CHANNEL), ADMIN_ID):
-        telegram("answerCallbackQuery", {"callback_query_id": query["id"], "text": "Ця панель недоступна в цьому чаті.", "show_alert": True})
         return
     message_id = message.get("message_id")
-    telegram("answerCallbackQuery", {"callback_query_id": query["id"], "text": "Відкрий приватний чат із ботом, натисни Start і надішли /post.", "show_alert": True} if data == "compose" else {"callback_query_id": query["id"]})
 
     with db_connection() as conn:
         if conn is None:
@@ -368,6 +371,19 @@ def main():
     if not raw:
         raise SystemExit("TELEGRAM_UPDATE_JSON is required")
     update = json.loads(raw)
+    update_id = update.get("update_id")
+    if update_id is not None:
+        with db_connection() as conn:
+            if conn is None:
+                raise RuntimeError("Neon database unavailable")
+            ensure_admin_schema(conn)
+            claimed = conn.execute(
+                "INSERT INTO bot_processed_updates (update_id) VALUES (%s) ON CONFLICT DO NOTHING RETURNING update_id",
+                (int(update_id),),
+            ).fetchone()
+            if not claimed:
+                print(f"Duplicate Telegram update {update_id}; ignored")
+                return
     if "callback_query" in update:
         process_callback(update)
     elif "message" in update:
