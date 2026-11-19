@@ -513,13 +513,15 @@ def maybe_news(state, now):
             source_errors.append(f"@{handle}: {error}")
             print(f"Новини: не вдалося прочитати @{handle}: {error}")
 
-    if source_errors and len(source_errors) == len(SOURCES):
-        notify_editorial_error("Не вдалося прочитати жодне джерело новин.\\n" + "\n".join(source_errors[:5]))
-        return
+    if source_errors:
+        label = (
+            "Не вдалося прочитати жодне джерело новин."
+            if len(source_errors) == len(SOURCES)
+            else "Частина джерел новин недоступна."
+        )
+        notify_editorial_error(label + "\\n" + "\\n".join(source_errors[:5]))
 
     if not candidates:
-        if source_errors:
-            notify_editorial_error("Частина джерел новин недоступна.\\n" + "\n".join(source_errors[:5]))
         print("Новини: немає свіжої доречної текстової публікації")
         return
 
@@ -574,18 +576,31 @@ def maybe_news(state, now):
 
 
 def notify_editorial_error(message):
-    """Окреме повідомлення про збій редакційного модуля; не впливає на графіки."""
+    """Надсилає окреме сповіщення, не блокуючи публікацію графіків."""
     if not TOKEN:
         print("Сповіщення редакційної помилки не надіслано: немає TELEGRAM_BOT_TOKEN")
         return
     try:
+        state = load_state()
+        editorial = state.setdefault("editorial", {})
+        fingerprint = hashlib.sha256(message.encode("utf-8")).hexdigest()
+        previous_at = parse_datetime(editorial.get("lastErrorAlertAt", ""))
+        if (
+            editorial.get("lastErrorFingerprint") == fingerprint
+            and previous_at
+            and datetime.now(KYIV) - previous_at < timedelta(hours=6)
+        ):
+            print("Сповіщення про цю помилку вже надсилалося протягом останніх 6 годин")
+            return
         send_message(
             "⚠️ <b>Помилка редакційного модуля</b>\\n\\n"
             + html.escape(message[:2500])
         )
+        editorial["lastErrorFingerprint"] = fingerprint
+        editorial["lastErrorAlertAt"] = datetime.now(KYIV).isoformat()
+        save_state(state)
     except Exception as notify_error:
         print(f"Не вдалося надіслати сповіщення редакційної помилки: {notify_error}")
-
 
 def main():
     if not TOKEN:
