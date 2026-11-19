@@ -102,17 +102,6 @@ jobs:
           NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
         run: python scripts/telegram-editorial.py
 
-      - name: Єдиний моніторинг сайту, графіків і Telegram
-        if: always() && steps.restore_cache.outcome == 'success'
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: "@PoltavaLight"
-          NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
-          REFRESH_STATUS: ${{ steps.refresh.outcome }}
-          SCHEDULE_PUBLISH_STATUS: ${{ steps.schedule_publish.outcome }}
-          EDITORIAL_STATUS: ${{ steps.editorial.outcome }}
-        run: python scripts/telegram-monitor.py
-
       # Публікуємо стан Telegram, навіть якщо джерело графіків тимчасово недоступне.
       - name: Опублікувати JSON і стан Telegram
         if: always() && steps.restore_cache.outcome == 'success'
@@ -123,3 +112,15 @@ jobs:
           publish_dir: ./public/data/schedules
           destination_dir: schedules
           keep_files: false
+
+      - name: Єдиний моніторинг сайту, графіків і Telegram
+        if: always() && steps.restore_cache.outcome == 'success'
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: "@PoltavaLight"
+          NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+          REFRESH_STATUS: ${{ steps.refresh.outcome }}
+          SCHEDULE_PUBLISH_STATUS: ${{ steps.schedule_publish.outcome }}
+          EDITORIAL_STATUS: ${{ steps.editorial.outcome }}
+        run: python scripts/telegram-monitor.py
