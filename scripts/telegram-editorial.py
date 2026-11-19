@@ -569,7 +569,6 @@ def maybe_news(state, now):
             if len(source_errors) == len(SOURCES)
             else "Частина джерел новин недоступна."
         )
-        record_error("editorial_sources", label, {"errors": source_errors[:10]})
         notify_editorial_error(label + "\n" + "\n".join(source_errors[:5]))
 
     if not candidates:
