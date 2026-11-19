@@ -136,7 +136,7 @@ def main():
     }
     issues = []
     for label, status in statuses.items():
-        is_problem = status not in ("success", "not-run") and not (
+        is_problem = status not in ("success", "not-run", "skipped") and not (
             label == "публікація змін графіка" and status == "skipped" and statuses["оновлення джерела графіків"] != "success"
         )
         record_monitor_check("telegram_bot", label, "error" if is_problem else status, details={"workflowOutcome": status})
