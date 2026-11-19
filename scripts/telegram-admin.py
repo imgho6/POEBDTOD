@@ -95,10 +95,118 @@ def ensure_admin_schema(conn):
 def menu_keyboard():
     return {
         "inline_keyboard": [
-            [{"text": "⚙️ Модулі", "callback_data": "modules"}, {"text": "📝 Створити допис", "callback_data": "compose"}],
-            [{"text": "🗓 Заплановані дописи", "callback_data": "posts"}, {"text": "🔄 Оновити панель", "callback_data": "menu"}],
+            [{"text": "📊 Статистика", "callback_data": "stats"}, {"text": "🩺 Стан системи", "callback_data": "health"}],
+            [{"text": "⚙️ Модулі", "callback_data": "modules"}, {"text": "🗓 Заплановані", "callback_data": "posts"}],
+            [{"text": "📰 Історія публікацій", "callback_data": "history"}, {"text": "🚨 Помилки", "callback_data": "errors"}],
+            [{"text": "📝 Створити допис", "callback_data": "compose"}, {"text": "🔧 Налаштування", "callback_data": "config"}],
+            [{"text": "🔄 Оновити", "callback_data": "menu"}],
         ]
     }
+
+
+def back_keyboard():
+    return {"inline_keyboard": [[{"text": "⬅️ До головної панелі", "callback_data": "menu"}]]}
+
+
+def format_local(value):
+    if not value:
+        return "невідомо"
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(KYIV).strftime("%d.%m.%Y %H:%M")
+
+
+def health_text(conn):
+    rows = conn.execute("""
+        SELECT DISTINCT ON (check_name) check_name, status, checked_at, details
+        FROM bot_monitor_checks ORDER BY check_name, checked_at DESC
+    """).fetchall()
+    if not rows:
+        return "<b>🩺 Стан системи</b>\n\nДаних моніторингу поки немає."
+    icons = {"ok": "🟢", "success": "🟢", "warning": "🟡", "not-configured": "⚪", "error": "🔴", "failure": "🔴"}
+    lines = ["<b>🩺 Стан системи</b>", ""]
+    for name, status, checked_at, details in rows:
+        lines.append(f"{icons.get(str(status).lower(), '⚪')} <b>{html.escape(str(name))}</b> – {html.escape(str(status))}")
+        lines.append(f"   <i>{format_local(checked_at)}</i>")
+        if isinstance(details, dict) and details.get("reason"):
+            lines.append("   " + html.escape(str(details["reason"])[:180]))
+    lines += ["", "Це останні збережені результати перевірок."]
+    return "\n".join(lines)
+
+
+def stats_text(conn):
+    totals = conn.execute("""
+        SELECT COUNT(*),
+               COUNT(*) FILTER (WHERE published_at >= NOW() - INTERVAL '7 days'),
+               COUNT(*) FILTER (WHERE published_at >= NOW() - INTERVAL '30 days')
+        FROM bot_publications WHERE chat_id = %s AND deleted_at IS NULL
+    """, (PUBLIC_CHANNEL,)).fetchone()
+    kinds = conn.execute("""
+        SELECT kind, COUNT(*) FROM bot_publications
+        WHERE chat_id = %s AND deleted_at IS NULL
+          AND published_at >= NOW() - INTERVAL '30 days'
+        GROUP BY kind ORDER BY COUNT(*) DESC
+    """, (PUBLIC_CHANNEL,)).fetchall()
+    scheduled = conn.execute("""
+        SELECT COUNT(*) FILTER (WHERE status = 'scheduled'),
+               COUNT(*) FILTER (WHERE status = 'sent'),
+               COUNT(*) FILTER (WHERE status = 'failed')
+        FROM bot_scheduled_posts
+    """).fetchone()
+    lines = [
+        "<b>📊 Статистика каналу</b>", "",
+        f"Усього записаних публікацій: <b>{totals[0]}</b>",
+        f"За 7 днів: <b>{totals[1]}</b>",
+        f"За 30 днів: <b>{totals[2]}</b>", "",
+        "<b>Типи публікацій за 30 днів:</b>",
+    ]
+    lines.extend([f"• {html.escape(str(kind))}: {count}" for kind, count in kinds] or ["• Немає даних"])
+    lines += ["", "<b>Відкладені дописи:</b>", f"• Очікують: {scheduled[0]}", f"• Опубліковано: {scheduled[1]}", f"• Помилки: {scheduled[2]}"]
+    return "\n".join(lines)
+
+
+def errors_text(conn):
+    rows = conn.execute("SELECT component, severity, message, created_at FROM bot_errors ORDER BY created_at DESC LIMIT 7").fetchall()
+    if not rows:
+        return "<b>🚨 Журнал помилок</b>\n\nПомилок у журналі немає."
+    lines = ["<b>🚨 Останні помилки</b>", ""]
+    for component, severity, message, created_at in rows:
+        lines.append(f"<b>{html.escape(str(component))}</b> · {html.escape(str(severity))} · {format_local(created_at)}")
+        lines.append(html.escape(str(message)[:350]))
+        lines.append("")
+    return "\n".join(lines)
+
+
+def history_text(conn):
+    rows = conn.execute("""
+        SELECT kind, title, body, published_at, message_id
+        FROM bot_publications WHERE chat_id = %s AND deleted_at IS NULL
+        ORDER BY published_at DESC LIMIT 10
+    """, (PUBLIC_CHANNEL,)).fetchall()
+    if not rows:
+        return "<b>📰 Історія публікацій</b>\n\nПублікацій у базі поки немає."
+    lines = ["<b>📰 Останні публікації</b>", ""]
+    for kind, title, body, published_at, message_id in rows:
+        preview = str(title or body or "Без текстового опису").replace("\n", " ")
+        if len(preview) > 180:
+            preview = preview[:177] + "…"
+        lines.extend([f"<b>{html.escape(str(kind))}</b> · {format_local(published_at)}", html.escape(preview), f"<i>ID повідомлення: {message_id}</i>", ""])
+    return "\n".join(lines)
+
+
+def config_text(conn):
+    rows = conn.execute("SELECT setting_key, enabled FROM bot_settings ORDER BY setting_key").fetchall()
+    states = {key: enabled for key, enabled in rows}
+    lines = [
+        "<b>🔧 Налаштування та довідка</b>", "",
+        f"Публічний канал: {html.escape(PUBLIC_CHANNEL)}",
+        f"Адмін-чат: <code>{html.escape(ADMIN_CHANNEL)}</code>",
+        "Часовий пояс: Europe/Kyiv", "Сховище стану: Neon PostgreSQL", "", "<b>Модулі:</b>",
+    ]
+    for key, label in MODULES.items():
+        lines.append(("🟢 " if states.get(key, True) else "🔴 ") + html.escape(label))
+    lines += ["", "<b>Команди:</b>", "/panel – головна панель", "/status – стан модулів", "/health – перевірки", "/stats – статистика", "/errors – журнал помилок", "/history – публікації", "/post – створити допис"]
+    return "\n".join(lines)
 
 
 def modules_keyboard(conn):
@@ -118,7 +226,9 @@ def panel_text(conn):
     lines = ["<b>Панель керування Світло.ua</b>", "", "Стан модулів:"]
     for key, label in MODULES.items():
         lines.append(("🟢" if states.get(key, True) else "🔴") + " " + label)
-    lines += ["", "Керування доступне лише власнику бота."]
+    pending = conn.execute("SELECT COUNT(*) FROM bot_scheduled_posts WHERE status = 'scheduled'").fetchone()[0]
+    recent_errors = conn.execute("SELECT COUNT(*) FROM bot_errors WHERE created_at >= NOW() - INTERVAL '24 hours'").fetchone()[0]
+    lines += ["", f"🗓 Очікують публікації: <b>{pending}</b>", f"🚨 Помилок за 24 години: <b>{recent_errors}</b>", f"🕒 Оновлено: {datetime.now(KYIV):%d.%m.%Y %H:%M}", "", "Керування доступне лише власнику бота."]
     return "\n".join(lines)
 
 
@@ -204,8 +314,19 @@ def process_callback(update):
                 "text": "<b>Керування модулями</b>\nНатисни модуль, щоб змінити його стан.",
                 "parse_mode": "HTML", "reply_markup": modules_keyboard(conn),
             })
+        elif data == "stats":
+            telegram("editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": stats_text(conn), "parse_mode": "HTML", "reply_markup": back_keyboard()})
+        elif data == "health":
+            telegram("editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": health_text(conn), "parse_mode": "HTML", "reply_markup": back_keyboard()})
+        elif data == "errors":
+            telegram("editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": errors_text(conn), "parse_mode": "HTML", "reply_markup": back_keyboard()})
+        elif data == "history":
+            telegram("editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": history_text(conn), "parse_mode": "HTML", "reply_markup": back_keyboard()})
+        elif data == "config":
+            telegram("editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": config_text(conn), "parse_mode": "HTML", "reply_markup": back_keyboard()})
         elif data == "compose":
-            pass
+            set_session(conn, "awaiting_text")
+            telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Надішли текст допису для каналу @PoltavaLight. Перед публікацією покажу попередній перегляд."})
         elif data == "posts":
             rows = conn.execute("""
                 SELECT id, body, scheduled_at FROM bot_scheduled_posts
@@ -268,6 +389,11 @@ def process_message(update):
         elif text == "/post":
             set_session(conn, "awaiting_text")
             telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Надішли текст допису для каналу @PoltavaLight. Я покажу попередній перегляд перед публікацією."})
+        elif text in ("/status", "/health", "/stats", "/errors", "/history"):
+            renderers = {"/status": lambda: panel_text(conn), "/health": lambda: health_text(conn), "/stats": lambda: stats_text(conn), "/errors": lambda: errors_text(conn), "/history": lambda: history_text(conn)}
+            telegram("sendMessage", {"chat_id": ADMIN_ID, "text": renderers[text](), "parse_mode": "HTML", "reply_markup": menu_keyboard()})
+        elif text == "/help":
+            telegram("sendMessage", {"chat_id": ADMIN_ID, "text": config_text(conn), "parse_mode": "HTML", "reply_markup": menu_keyboard()})
         elif text.startswith("/at "):
             session = get_session(conn)
             if not session or session[0] != "awaiting_schedule" or not session[1]:
