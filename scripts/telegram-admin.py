@@ -507,12 +507,20 @@ def process_callback(update):
         elif data == "draft:edit":
             session = get_session(conn)
             if session and session[1]:
-                set_session(conn, "awaiting_text", session[1])
-                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Надішли повний оновлений текст чернетки одним повідомленням."})
+                try:
+                    draft_obj = json.loads(session[1]) if session[1].startswith("{") else {"body": session[1]}
+                except Exception:
+                    draft_obj = {"body": session[1]}
+                set_session(conn, "awaiting_text", json.dumps(draft_obj, ensure_ascii=False))
+                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Надішли повний оновлений текст або підпис одним повідомленням."})
         elif data == "draft:back":
             session = get_session(conn)
             if session and session[1]:
-                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Поточна чернетка:\n\n" + session[1], "reply_markup": draft_keyboard()})
+                try:
+                    draft_obj = json.loads(session[1]) if session[1].startswith("{") else {"body": session[1]}
+                except Exception:
+                    draft_obj = {"body": session[1]}
+                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Поточна чернетка:\n\n" + (draft_obj.get("body") or "[медіа без підпису]"), "reply_markup": draft_keyboard()})
         elif data == "draft:cancel":
             clear_session(conn)
             telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Чернетку скасовано."})
@@ -546,6 +554,8 @@ def process_callback(update):
             except Exception:
                 obj = {"body": session[1]}
             conn.execute("INSERT INTO bot_scheduled_posts (body, scheduled_at, created_by, media_type, media_file_id) VALUES (%s,%s,%s,%s,%s)", (obj.get("body", ""), when.astimezone(timezone.utc), ADMIN_ID, obj.get("media_type"), obj.get("media_file_id")))
+            if obj.get("draft_id"):
+                conn.execute("DELETE FROM bot_admin_drafts WHERE id=%s", (obj["draft_id"],))
             clear_session(conn)
             telegram("sendMessage", {"chat_id": ADMIN_ID, "text": f"🗓 Заплановано на {when:%d.%m.%Y о %H:%M} за Києвом.", "reply_markup": {"inline_keyboard": [[{"text": "🗓 Переглянути розклад", "callback_data": "posts"}], [{"text": "➕ Новий допис", "callback_data": "compose"}]]}})
 
@@ -568,6 +578,8 @@ def process_message(update):
         session = get_session(conn)
         if session and session[0] == "awaiting_media" and media_type:
             payload = {"media_type": media_type, "media_file_id": media_file_id, "body": text}
+            draft_id = conn.execute("INSERT INTO bot_admin_drafts (title, body, media_type, media_file_id) VALUES (%s,%s,%s,%s) RETURNING id", ("Медіадопис", text, media_type, media_file_id)).fetchone()[0]
+            payload["draft_id"] = draft_id
             set_session(conn, "awaiting_media_caption", json.dumps(payload, ensure_ascii=False))
             if text:
                 set_session(conn, "confirm_draft", json.dumps(payload, ensure_ascii=False))
@@ -577,6 +589,8 @@ def process_message(update):
             return
         if session and session[0] == "awaiting_media_caption" and text:
             payload = json.loads(session[1]); payload["body"] = text
+            if payload.get("draft_id"):
+                conn.execute("UPDATE bot_admin_drafts SET body=%s, updated_at=NOW() WHERE id=%s", (text, payload["draft_id"]))
             set_session(conn, "confirm_draft", json.dumps(payload, ensure_ascii=False))
             telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Підпис готовий. Перевір і публікуй:", "reply_markup": draft_keyboard()})
             return
@@ -624,10 +638,16 @@ def process_message(update):
             except ValueError:
                 telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Некоректна дата або час. Час має бути в майбутньому."})
                 return
+            try:
+                scheduled_obj = json.loads(session[1]) if session[1].startswith("{") else {"body": session[1]}
+            except Exception:
+                scheduled_obj = {"body": session[1]}
             conn.execute("""
-                INSERT INTO bot_scheduled_posts (body, scheduled_at, created_by)
-                VALUES (%s, %s, %s)
-            """, (session[1], local.astimezone(timezone.utc), ADMIN_ID))
+                INSERT INTO bot_scheduled_posts (body, scheduled_at, created_by, media_type, media_file_id)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (scheduled_obj.get("body", ""), local.astimezone(timezone.utc), ADMIN_ID, scheduled_obj.get("media_type"), scheduled_obj.get("media_file_id")))
+            if scheduled_obj.get("draft_id"):
+                conn.execute("DELETE FROM bot_admin_drafts WHERE id=%s", (scheduled_obj["draft_id"],))
             clear_session(conn)
             telegram("sendMessage", {"chat_id": ADMIN_ID, "text": f"Готово. Допис заплановано на {local:%d.%m.%Y о %H:%M} за Києвом."})
         else:
@@ -636,8 +656,16 @@ def process_message(update):
                 if len(text) > 4000:
                     telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Занадто довгий текст. Максимум 4000 символів."})
                     return
-                set_session(conn, "confirm_draft", text)
-                conn.execute("INSERT INTO bot_admin_drafts (title, body) VALUES (%s, %s)", (text[:80] or "Чернетка", text))
+                try:
+                    draft_obj = json.loads(session[1]) if session[1] and session[1].startswith("{") else {"body": session[1] or ""}
+                except Exception:
+                    draft_obj = {"body": session[1] or ""}
+                draft_obj["body"] = text
+                if draft_obj.get("draft_id"):
+                    conn.execute("UPDATE bot_admin_drafts SET body=%s, title=%s, updated_at=NOW() WHERE id=%s", (text, text[:80] or "Чернетка", draft_obj["draft_id"]))
+                else:
+                    draft_obj["draft_id"] = conn.execute("INSERT INTO bot_admin_drafts (title, body, media_type, media_file_id) VALUES (%s,%s,%s,%s) RETURNING id", (text[:80] or "Чернетка", text, draft_obj.get("media_type"), draft_obj.get("media_file_id"))).fetchone()[0]
+                set_session(conn, "confirm_draft", json.dumps(draft_obj, ensure_ascii=False))
                 telegram("sendMessage", {
                     "chat_id": ADMIN_ID,
                     "text": "👀 Попередній перегляд допису:\n\n" + text + "\n\nПеревір текст. Можеш відредагувати, опублікувати або запланувати.",
