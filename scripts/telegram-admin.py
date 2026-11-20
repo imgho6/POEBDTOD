@@ -97,6 +97,18 @@ def ensure_admin_schema(conn):
     conn.execute("ALTER TABLE bot_admin_drafts ADD COLUMN IF NOT EXISTS website_button BOOLEAN NOT NULL DEFAULT FALSE")
     conn.execute("CREATE INDEX IF NOT EXISTS bot_admin_drafts_updated_idx ON bot_admin_drafts (updated_at DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS bot_scheduled_posts_due_idx ON bot_scheduled_posts (scheduled_at) WHERE status = 'scheduled'")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS bot_forwarded_album_items (
+            media_group_id TEXT NOT NULL,
+            message_id BIGINT NOT NULL,
+            media_type TEXT NOT NULL,
+            media_file_id TEXT NOT NULL,
+            caption TEXT NOT NULL DEFAULT '',
+            received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (media_group_id, message_id)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS bot_forwarded_album_received_idx ON bot_forwarded_album_items (received_at)")
     for key in MODULES:
         conn.execute(
             "INSERT INTO bot_settings (setting_key, enabled) VALUES (%s, TRUE) ON CONFLICT (setting_key) DO NOTHING",
@@ -154,13 +166,14 @@ def website_keyboard():
 
 
 def clean_forwarded_news(raw_text):
-    """Remove common promotional channel footers while preserving source credits."""
+    """Remove channel watermarks, handles, links and promotional footers."""
     lines = []
     promo = re.compile(
-        r"^[^\w]*(?:підпис(?:уйтесь|атися|атись|уйся)?|підпиш(?:ись|іться)|subscribe|"
-        r"наш(?: канал| телеграм| telegram)|читайте нас|слідкуйте за нами|"
-        r"реклама|рекламна співпраця|для реклами|надсилайте новини|"
-        r"запропонувати новину|зв'язок з адміном|наші соцмережі)\b.*$",
+        r"^[^\w]*(?:підпис\w*|підпиш\w*|subscribe\w*|"
+        r"наш(?:\s+\w+){0,3}\s+(?:канал|телеграм|telegram)|"
+        r"читайте\s+нас|слідкуйте\s+за\s+нами|реклам\w*|"
+        r"для\s+реклами|надсилайте\s+новини|запропонувати\s+новину|"
+        r"зв'язок\s+з\s+адміном|наші\s+соцмережі)\b.*$",
         re.IGNORECASE,
     )
     for raw_line in (raw_text or "").replace("\r", "").split("\n"):
@@ -171,16 +184,23 @@ def clean_forwarded_news(raw_text):
             continue
         if promo.match(line):
             continue
-        if re.fullmatch(r"(?:https?://)?t\.me/[A-Za-z0-9_+/.-]+/?", line, re.IGNORECASE):
+        if re.fullmatch(r"(?:https?://)?(?:t\.me|telegram\.me)/[A-Za-z0-9_+/.-]+/?", line, re.IGNORECASE):
             continue
         if re.fullmatch(r"@[A-Za-z0-9_]{4,}", line):
             continue
-        lines.append(line)
+        if re.fullmatch(r"(?:https?://)?(?:www\.)?[A-Za-z0-9.-]+\.[A-Za-z]{2,}/?", line):
+            continue
+        line = re.sub(r"\s*[|·]\s*@?[A-Za-z0-9_]{4,}\s*$", "", line).strip()
+        line = re.sub(r"\s*[|·]\s*(?:https?://)?(?:t\.me|telegram\.me)/\S+\s*$", "", line, flags=re.IGNORECASE).strip()
+        if line:
+            lines.append(line)
     body = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
     if not body:
         body = "📰 Новина"
     return body + "\n\n⚡ Світло.ua"
 
+
+def drafts_keyboard
 
 def drafts_keyboard(rows):
     buttons = [[{"text": f"✏️ #{r[0]} · {r[1][:30]}", "callback_data": f"drafts:open:{r[0]}"}] for r in rows]
@@ -535,6 +555,20 @@ def process_callback(update):
             post_id = int(data.split(":", 1)[1])
             conn.execute("UPDATE bot_scheduled_posts SET status = 'cancelled' WHERE id = %s AND status = 'scheduled'", (post_id,))
             send_panel(chat_id, message_id)
+        elif data.startswith("draft:load:"):
+            draft_id = int(data.split(":", 2)[2])
+            row = conn.execute(
+                "SELECT body, media_type, media_file_id, website_button FROM bot_admin_drafts WHERE id = %s",
+                (draft_id,),
+            ).fetchone()
+            if not row:
+                telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Чернетку альбому вже не знайдено."})
+                return
+            body, media_type, file_id, website_button = row
+            payload = {"body": body, "media_type": media_type, "media_file_id": file_id,
+                       "website_button": bool(website_button), "draft_id": draft_id}
+            set_session(conn, "confirm_draft", json.dumps(payload, ensure_ascii=False))
+            telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Альбом готовий до публікації. Перевір підпис і підтверди дію:", "reply_markup": draft_keyboard()})
         elif data == "draft:now":
             session = get_session(conn)
             if not session or session[0] != "confirm_draft" or not session[1]:
@@ -546,7 +580,17 @@ def process_callback(update):
                 obj = {"body": session[1]}
             body, media_type, file_id = obj.get("body", ""), obj.get("media_type"), obj.get("media_file_id")
             extra = {"reply_markup": website_keyboard()} if obj.get("website_button") else {}
-            if media_type == "photo":
+            if media_type == "album":
+                album_items = json.loads(file_id or "[]")
+                media = [{"type": item["type"], "media": item["file_id"]} for item in album_items]
+                if media and body:
+                    media[0]["caption"] = body[:1024]
+                    media[0]["parse_mode"] = "HTML"
+                results = telegram("sendMediaGroup", {"chat_id": PUBLIC_CHANNEL, "media": media})
+                result = results[0]
+                if obj.get("website_button"):
+                    telegram("sendMessage", {"chat_id": PUBLIC_CHANNEL, "text": "🌐 Відкрити Світло.ua", "reply_markup": website_keyboard()})
+            elif media_type == "photo":
                 result = telegram("sendPhoto", {"chat_id": PUBLIC_CHANNEL, "photo": file_id, "caption": body[:1024], **extra})
             elif media_type == "video":
                 result = telegram("sendVideo", {"chat_id": PUBLIC_CHANNEL, "video": file_id, "caption": body[:1024], **extra})
@@ -634,6 +678,19 @@ def process_message(update):
         ensure_admin_schema(conn)
         session = get_session(conn)
         forwarded = bool(message.get("forward_origin") or message.get("forward_from_chat") or message.get("forward_sender_name") or message.get("forward_date"))
+        if forwarded and message.get("media_group_id") and media_type:
+            conn.execute(
+                """
+                INSERT INTO bot_forwarded_album_items
+                    (media_group_id, message_id, media_type, media_file_id, caption)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (media_group_id, message_id) DO NOTHING
+                """,
+                (str(message["media_group_id"]), int(message.get("message_id", 0)),
+                 media_type, media_file_id, text),
+            )
+            print(f"Forwarded album item queued: {message['media_group_id']}")
+            return
         if forwarded:
             cleaned = clean_forwarded_news(text)
             limit = 1024 if media_type else 4096
@@ -753,11 +810,58 @@ def process_message(update):
                 telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Команди: /start, /panel, /post"})
 
 
+def flush_forwarded_albums(conn):
+    groups = conn.execute("""
+        SELECT media_group_id
+        FROM bot_forwarded_album_items
+        GROUP BY media_group_id
+        HAVING MAX(received_at) <= NOW() - INTERVAL '20 seconds'
+        ORDER BY MIN(received_at)
+        LIMIT 10
+    """).fetchall()
+    for (group_id,) in groups:
+        items = conn.execute("""
+            SELECT media_type, media_file_id, caption
+            FROM bot_forwarded_album_items
+            WHERE media_group_id = %s
+            ORDER BY message_id
+        """, (group_id,)).fetchall()
+        if not items:
+            continue
+        media_items = [{"type": media_type, "file_id": file_id} for media_type, file_id, _ in items]
+        raw_caption = next((caption for _, _, caption in items if caption), "")
+        cleaned = clean_forwarded_news(raw_caption)
+        if len(cleaned) > 1024:
+            telegram("sendMessage", {"chat_id": ADMIN_ID, "text": "Підпис альбому задовгий для Telegram. Скороти його та надішли альбом ще раз."})
+            conn.execute("DELETE FROM bot_forwarded_album_items WHERE media_group_id = %s", (group_id,))
+            continue
+        draft_id = conn.execute(
+            """
+            INSERT INTO bot_admin_drafts (title, body, media_type, media_file_id, website_button)
+            VALUES (%s, %s, 'album', %s, TRUE) RETURNING id
+            """,
+            ("Альбом: " + (cleaned[:65] or "без підпису"), cleaned, json.dumps(media_items, ensure_ascii=False)),
+        ).fetchone()[0]
+        preview = [{"type": item["type"], "media": item["file_id"]} for item in media_items]
+        if preview and cleaned:
+            preview[0]["caption"] = cleaned[:1024]
+            preview[0]["parse_mode"] = "HTML"
+        telegram("sendMediaGroup", {"chat_id": ADMIN_ID, "media": preview})
+        telegram("sendMessage", {
+            "chat_id": ADMIN_ID,
+            "text": f"🖼 Альбом із {len(media_items)} фото/відео підготовлено. Перевір і натисни кнопку, щоб відкрити чернетку.",
+            "reply_markup": {"inline_keyboard": [[{"text": "📝 Відкрити чернетку альбому", "callback_data": f"draft:load:{draft_id}"}]]},
+        })
+        conn.execute("DELETE FROM bot_forwarded_album_items WHERE media_group_id = %s", (group_id,))
+        print(f"Forwarded album {group_id} staged as draft {draft_id} ({len(media_items)} items)")
+
+
 def dispatch_due():
     with db_connection() as conn:
         if conn is None:
             raise RuntimeError("Neon database unavailable")
         ensure_admin_schema(conn)
+        flush_forwarded_albums(conn)
         rows = conn.execute("""
             SELECT id, body, media_type, media_file_id, website_button FROM bot_scheduled_posts
             WHERE status = 'scheduled' AND scheduled_at <= NOW()
@@ -769,7 +873,17 @@ def dispatch_due():
             conn.execute("UPDATE bot_scheduled_posts SET status = 'sending' WHERE id = %s", (post_id,))
             try:
                 extra = {"reply_markup": website_keyboard()} if website_button else {}
-                if media_type == "photo":
+                if media_type == "album":
+                    album_items = json.loads(media_file_id or "[]")
+                    media = [{"type": item["type"], "media": item["file_id"]} for item in album_items]
+                    if media and body:
+                        media[0]["caption"] = (body or "")[:1024]
+                        media[0]["parse_mode"] = "HTML"
+                    results = telegram("sendMediaGroup", {"chat_id": PUBLIC_CHANNEL, "media": media})
+                    result = results[0]
+                    if website_button:
+                        telegram("sendMessage", {"chat_id": PUBLIC_CHANNEL, "text": "🌐 Відкрити Світло.ua", "reply_markup": website_keyboard()})
+                elif media_type == "photo":
                     result = telegram("sendPhoto", {"chat_id": PUBLIC_CHANNEL, "photo": media_file_id, "caption": (body or "")[:1024], **extra})
                 elif media_type == "video":
                     result = telegram("sendVideo", {"chat_id": PUBLIC_CHANNEL, "video": media_file_id, "caption": (body or "")[:1024], **extra})
