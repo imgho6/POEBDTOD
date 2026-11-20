@@ -585,7 +585,6 @@ def process_callback(update):
                 media = [{"type": item["type"], "media": item["file_id"]} for item in album_items]
                 if media and body:
                     media[0]["caption"] = body[:1024]
-                    media[0]["parse_mode"] = "HTML"
                 results = telegram("sendMediaGroup", {"chat_id": PUBLIC_CHANNEL, "media": media})
                 result = results[0]
                 if obj.get("website_button"):
@@ -845,7 +844,6 @@ def flush_forwarded_albums(conn):
         preview = [{"type": item["type"], "media": item["file_id"]} for item in media_items]
         if preview and cleaned:
             preview[0]["caption"] = cleaned[:1024]
-            preview[0]["parse_mode"] = "HTML"
         telegram("sendMediaGroup", {"chat_id": ADMIN_ID, "media": preview})
         telegram("sendMessage", {
             "chat_id": ADMIN_ID,
