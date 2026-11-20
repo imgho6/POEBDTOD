@@ -129,19 +129,34 @@ def check_database():
 
 
 def main():
+    event_name = os.environ.get("WORKFLOW_EVENT_NAME", "unknown")
+    refresh_status = os.environ.get("REFRESH_STATUS", "unknown")
+    publish_status = os.environ.get("SCHEDULE_PUBLISH_STATUS", "unknown")
+    publish_result = os.environ.get("SCHEDULE_PUBLISH_RESULT", "")
+    editorial_status = os.environ.get("EDITORIAL_STATUS", "not-run")
+    if event_name == "push" and editorial_status == "skipped":
+        editorial_status = "not-run"
+    if publish_status == "success" and publish_result == "no-change":
+        publish_status = "no-change"
+    elif publish_status == "success" and publish_result == "published":
+        publish_status = "published"
+    elif publish_status == "skipped" and event_name == "push":
+        publish_status = "not-run"
     statuses = {
-        "оновлення джерела графіків": os.environ.get("REFRESH_STATUS", "unknown"),
-        "публікація змін графіка": os.environ.get("SCHEDULE_PUBLISH_STATUS", "unknown"),
-        "редакційний модуль": os.environ.get("EDITORIAL_STATUS", "not-run"),
+        "оновлення джерела графіків": refresh_status,
+        "публікація змін графіка": publish_status,
+        "редакційний модуль": editorial_status,
     }
     issues = []
     for label, status in statuses.items():
-        is_problem = status not in ("success", "not-run", "skipped") and not (
-            label == "публікація змін графіка" and status == "skipped" and statuses["оновлення джерела графіків"] != "success"
-        )
+        is_problem = status not in ("success", "published", "no-change", "not-run")
         record_monitor_check("telegram_bot", label, "error" if is_problem else status, details={"workflowOutcome": status})
         if is_problem and label != "редакційний модуль":
             issues.append(f"• {label}: {status}")
+        elif status == "no-change":
+            print("Графіки: перевірка успішна, нових змін немає")
+        elif status == "published":
+            print("Графіки: зміну успішно опубліковано в Telegram")
         elif is_problem:
             print("Редакційний модуль повідомляє про власні помилки окремим повідомленням")
             record_error("telegram_bot", f"{label}: {status}", {"workflowOutcome": status})
