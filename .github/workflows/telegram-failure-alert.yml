@@ -4,6 +4,7 @@ on:
   workflow_run:
     workflows:
       - Telegram – графіки та прогнози
+      - Telegram publisher scheduler
       - Telegram admin update
       - Telegram scheduled posts
       - Telegram workflow watchdog
