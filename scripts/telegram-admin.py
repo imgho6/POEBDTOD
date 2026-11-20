@@ -200,8 +200,6 @@ def clean_forwarded_news(raw_text):
     return body + "\n\n⚡ Світло.ua"
 
 
-def drafts_keyboard
-
 def drafts_keyboard(rows):
     buttons = [[{"text": f"✏️ #{r[0]} · {r[1][:30]}", "callback_data": f"drafts:open:{r[0]}"}] for r in rows]
     buttons.append([{"text": "⬅️ До панелі", "callback_data": "menu"}])
