@@ -3,6 +3,12 @@ name: Telegram workflow watchdog
 on:
   schedule:
     - cron: "*/5 * * * *"
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/telegram-watchdog.yml
+      - scripts/telegram-watchdog.py
   workflow_dispatch:
 
 permissions:
