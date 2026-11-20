@@ -1,9 +1,7 @@
 name: Telegram – графіки та прогнози
 
 on:
-  # Перевіряємо джерело графіків кожні 5 хвилин, щоб швидше помічати зміни.
-  schedule:
-    - cron: "*/5 * * * *"
+  workflow_call:
   push:
     branches:
       - main
@@ -101,7 +99,7 @@ jobs:
 
       - name: Ранкові дописи, поради та новини (лише текст)
         id: editorial
-        if: always() && steps.restore_cache.outcome == 'success' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        if: always() && steps.restore_cache.outcome == 'success' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call')
         continue-on-error: true
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
