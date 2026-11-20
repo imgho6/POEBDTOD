@@ -24,7 +24,7 @@ def utcnow():
 def latest_scheduled_run():
     url = (
         f"https://api.github.com/repos/{REPOSITORY}/actions/workflows/"
-        "telegram-publisher-scheduler.yml/runs?event=schedule&per_page=1"
+        "telegram-publisher.yml/runs?event=schedule&per_page=1"
     )
     request = urllib.request.Request(
         url,
