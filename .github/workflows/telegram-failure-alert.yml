@@ -6,6 +6,7 @@ on:
       - Telegram – графіки та прогнози
       - Telegram admin update
       - Telegram scheduled posts
+      - Telegram workflow watchdog
     types:
       - completed
 
