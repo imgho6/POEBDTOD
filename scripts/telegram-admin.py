@@ -309,10 +309,12 @@ def config_text(conn):
         "<b>🔧 Налаштування та довідка</b>", "",
         f"Публічний канал: {html.escape(PUBLIC_CHANNEL)}",
         f"Адмін-чат: <code>{html.escape(ADMIN_CHANNEL)}</code>",
-        "Часовий пояс: Europe/Kyiv", "Сховище стану: Neon PostgreSQL", "", "<b>Модулі:</b>",
+        "Часовий пояс: Europe/Kyiv", "Сховище стану: Neon PostgreSQL", "",
+        "<b>Дозвіл на запуск модулів:</b>",
     ]
     for key, label in MODULES.items():
-        lines.append(("🟢 " if states.get(key, True) else "🔴 ") + html.escape(label))
+        state_label = "Увімкнено" if states.get(key, True) else "Вимкнено"
+        lines.append(("🟢 " if states.get(key, True) else "🔴 ") + state_label + ": " + html.escape(label))
     lines += ["", "<b>Команди:</b>", "/panel – головна панель", "/status – стан модулів", "/health – перевірки", "/stats – статистика", "/errors – журнал помилок", "/history – публікації", "/post – створити допис"]
     return "\n".join(lines)
 
@@ -331,9 +333,13 @@ def modules_keyboard(conn):
 def panel_text(conn):
     rows = conn.execute("SELECT setting_key, enabled FROM bot_settings ORDER BY setting_key").fetchall()
     states = {key: enabled for key, enabled in rows}
-    lines = ["<b>Панель керування Світло.ua</b>", "", "Стан модулів:"]
+    lines = [
+        "<b>Панель керування Світло.ua</b>", "",
+        "Дозвіл на запуск модулів (не показник фактичної роботи):",
+    ]
     for key, label in MODULES.items():
-        lines.append(("🟢" if states.get(key, True) else "🔴") + " " + label)
+        state_label = "Увімкнено" if states.get(key, True) else "Вимкнено"
+        lines.append(("🟢" if states.get(key, True) else "🔴") + " " + state_label + ": " + label)
     pending = conn.execute("SELECT COUNT(*) FROM bot_scheduled_posts WHERE status = 'scheduled'").fetchone()[0]
     recent_errors = conn.execute("SELECT COUNT(*) FROM bot_errors WHERE created_at >= NOW() - INTERVAL '24 hours'").fetchone()[0]
     lines += ["", f"🗓 Очікують публікації: <b>{pending}</b>", f"🚨 Помилок за 24 години: <b>{recent_errors}</b>", f"🕒 Оновлено: {datetime.now(KYIV):%d.%m.%Y %H:%M}", "", "Керування доступне лише власнику бота."]
