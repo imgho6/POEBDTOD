@@ -1,8 +1,9 @@
 name: Telegram – графіки та прогнози
 
 on:
-  # Vercel Cron dispatches this workflow every half hour.
-  # A second GitHub schedule caused overlapping runs and cancellations.
+  # Перевіряємо джерело графіків кожні 5 хвилин, щоб швидше помічати зміни.
+  schedule:
+    - cron: "*/5 * * * *"
   push:
     branches:
       - main
