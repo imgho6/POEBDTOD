@@ -1,6 +1,8 @@
 name: Telegram – графіки та прогнози
 
 on:
+  schedule:
+    - cron: "*/5 * * * *"
   workflow_call:
   push:
     branches:
