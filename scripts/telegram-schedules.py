@@ -58,6 +58,14 @@ def save_state(state):
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     STATE_PATH.write_text(json.dumps(state, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
+
+def set_workflow_output(name, value):
+    """Передає фактичний результат публікації в наступні кроки GitHub Actions."""
+    output_path = os.environ.get("GITHUB_OUTPUT")
+    if output_path:
+        with open(output_path, "a", encoding="utf-8") as output:
+            output.write(f"{name}={value}\n")
+
 def telegram_request(url, data, headers, label, timeout=35):
     """Надійне надсилання до Telegram із повторними спробами при мережевих збоях."""
     attempts = 4
@@ -958,6 +966,7 @@ def main():
         print("Режим status-only: перевірку зображень пропущено.")
         return
 
+    published_any = False
     for date_key, kind in ((today, "today"), (tomorrow_key, "tomorrow")):
         schedule = load_schedule(date_key)
         if not schedule:
@@ -978,6 +987,11 @@ def main():
             raise
         entries[date_key] = {"hash": digest, "queues": queues, "kind": kind, "sentAt": now.isoformat()}
         save_state(state)
+        published_any = True
+
+    result = "published" if published_any else "no-change"
+    set_workflow_output("result", result)
+    print(f"Результат перевірки графіків: {result}")
 
 if __name__ == "__main__":
     try:
