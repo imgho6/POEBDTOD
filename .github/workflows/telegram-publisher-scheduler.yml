@@ -1,8 +1,6 @@
 name: Telegram publisher scheduler
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 permissions:
