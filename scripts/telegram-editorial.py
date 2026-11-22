@@ -283,6 +283,19 @@ def classify_news(handle, text, category):
     if power_hits == 0:
         return {"relevant": False, "relevance": 0, "importance": 0}
 
+    # Публікуємо лише новини з конкретною інформацією про графіки,
+    # черги або фактичне знеструмлення/відновлення. Побутові наслідки
+    # ГПВ (опалення, гуртожитки тощо) не є новинами для цього каналу.
+    direct_power_terms = (
+        "графік відключ", "графіки відключ", "погодинних відключ",
+        "черг відключ", "підчерг", "застосують гпв", "скасували гпв",
+        "аварійно знеструм", "знеструмлено", "без електропостач",
+        "відновили електропостач", "відновлюють електропостач",
+        "відключатимуть світло", "вимикатимуть світло",
+    )
+    if not any(term in lead for term in direct_power_terms):
+        return {"relevant": False, "relevance": 0, "importance": 0}
+
     is_local = any(term in lowered for term in LOCAL_TERMS)
     is_national = any(re.search(term, lowered) for term in NATIONAL_SCOPE_TERMS)
     relevant = is_local if category == "local" else (is_local or is_national)
