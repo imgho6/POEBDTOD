@@ -21,6 +21,13 @@ class EditorialFilterTests(unittest.TestCase):
         text = "На Полтавщині діятимуть графіки погодинних відключень електроенергії"
         self.assertTrue(editorial.relevant_post("suspilnepoltava", text, "local"))
 
+    def test_rejects_social_impact_story_about_heating_during_outages(self):
+        text = (
+            "Гуртожиток у Полтаві, де мешкають люди з порушеннями зору, "
+            "не опалюється під час ГПВ: як виживають"
+        )
+        self.assertFalse(editorial.relevant_post("suspilnepoltava", text, "local"))
+
     def test_accepts_nationwide_electricity_information(self):
         text = "В Україні змінять графіки відключень електроенергії для споживачів"
         self.assertTrue(editorial.relevant_post("ukrinform_news", text, "national"))
