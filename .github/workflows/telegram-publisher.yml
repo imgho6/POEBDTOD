@@ -114,17 +114,6 @@ jobs:
             echo "Редакційний модуль вимкнено через адмінпанель"
           fi
 
-      # Публікуємо стан Telegram, навіть якщо джерело графіків тимчасово недоступне.
-      - name: Опублікувати JSON і стан Telegram
-        if: always() && steps.restore_cache.outcome == 'success'
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_branch: gh-pages
-          publish_dir: ./public/data/schedules
-          destination_dir: schedules
-          keep_files: false
-
       - name: Єдиний моніторинг сайту, графіків і Telegram
         if: always() && steps.restore_cache.outcome == 'success'
         continue-on-error: true
@@ -143,3 +132,14 @@ jobs:
           else
             echo "Моніторинг вимкнено через адмінпанель"
           fi
+
+      # Публікуємо стан Telegram, навіть якщо джерело графіків тимчасово недоступне.
+      - name: Опублікувати JSON і стан Telegram
+        if: always() && steps.restore_cache.outcome == 'success'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: ./public/data/schedules
+          destination_dir: schedules
+          keep_files: false
