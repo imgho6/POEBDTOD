@@ -26,7 +26,7 @@ class FakeResponse:
         return False
 
     def read(self, size=-1):
-        return self.body[:size]
+        return self.body if size is None or size < 0 else self.body[:size]
 
     def geturl(self):
         return self.url
