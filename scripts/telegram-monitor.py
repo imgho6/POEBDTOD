@@ -123,6 +123,52 @@ def check_site():
         return "error", {"reason": str(error)[:500]}
 
 
+def check_api():
+    today = now().date().isoformat()
+    try:
+        request = urllib.request.Request(
+            f"https://prosvitlo.pp.ua/api/schedule?date={today}",
+            headers={"User-Agent": "PoltavaLightMonitor/1.0"},
+        )
+        with urllib.request.urlopen(request, timeout=15) as response:
+            data = json.loads(response.read().decode("utf-8"))
+            queues = data.get("queues")
+            expected = [f"{group}.{sub}" for group in range(1, 7) for sub in (1, 2)]
+            if response.status != 200:
+                return "error", {"reason": f"API HTTP {response.status}"}
+            if data.get("date") != today or not isinstance(queues, dict):
+                return "error", {"reason": "API повернув графік з неправильною датою або без черг"}
+            for queue in expected:
+                values = queues.get(queue)
+                if not isinstance(values, list) or len(values) != 48 or any(
+                    value not in ("on", "off", "switching") for value in values
+                ):
+                    return "error", {"reason": f"API повернув неповну підчергу {queue}"}
+            return "ok", {"httpStatus": response.status, "date": today, "queues": len(expected)}
+    except Exception as error:
+        return "error", {"reason": f"API недоступний: {type(error).__name__}"}
+
+
+def check_telegram_api():
+    if not TOKEN:
+        return "not-configured", {"reason": "TELEGRAM_BOT_TOKEN не налаштовано"}
+    try:
+        request = urllib.request.Request(
+            f"https://api.telegram.org/bot{TOKEN}/getMe",
+            headers={"User-Agent": "PoltavaLightMonitor/1.0"},
+        )
+        with urllib.request.urlopen(request, timeout=15) as response:
+            result = json.loads(response.read().decode("utf-8"))
+            if response.status != 200 or not result.get("ok"):
+                return "error", {"reason": "Telegram Bot API не підтвердив доступність бота"}
+            user = result.get("result", {})
+            return "ok", {"botUsername": user.get("username"), "botId": user.get("id")}
+    except urllib.error.HTTPError as error:
+        return "error", {"reason": f"Telegram Bot API HTTP {error.code}"}
+    except Exception as error:
+        return "error", {"reason": f"Telegram Bot API недоступний: {type(error).__name__}"}
+
+
 def check_database():
     if not os.environ.get("NEON_DATABASE_URL"):
         return "not-configured", {"reason": "NEON_DATABASE_URL ще не додано до GitHub Secrets"}
@@ -185,12 +231,100 @@ def main():
         issues.append("• Сайт: " + reason)
         record_error("website", reason, site_details)
 
+    api_status, api_details = check_api()
+    record_monitor_check("website", "API графіків", api_status, details=api_details)
+    if api_status != "ok":
+        reason = str(api_details.get("reason", "API недоступний"))
+        issues.append("• API: " + reason)
+        record_error("api", reason, api_details)
+
+    telegram_api_status, telegram_api_details = check_telegram_api()
+    record_monitor_check("telegram_bot", "доступність Telegram Bot API", telegram_api_status, details=telegram_api_details)
+    if telegram_api_status == "error":
+        reason = str(telegram_api_details.get("reason", "Telegram Bot API недоступний"))
+        issues.append("• Telegram: " + reason)
+        record_error("telegram_bot", reason, telegram_api_details)
+
     database_status, database_details = check_database()
     record_monitor_check("database", "підключення до PostgreSQL", database_status, details=database_details)
     if database_status == "error":
         reason = str(database_details.get("reason", "невідома помилка"))
         issues.append("• База даних: " + reason)
         record_error("database", reason, database_details)
+
+    # Публічний знімок стану для сторінки /status. Секрети та URL із токенами сюди не потрапляють.
+    state = load_state()
+    checked_at = now().isoformat()
+    source_status = "ok" if refresh_status == "success" and schedule_status == "ok" else (
+        "warning" if refresh_status == "success" and schedule_status == "warning" else "error"
+    )
+    source_message = (
+        "Графік успішно оновлено та перевірено."
+        if source_status == "ok"
+        else str(schedule_details.get("reason") or f"Оновлення джерела: {refresh_status}")
+    )
+    website_message = "Сайт відповідає коректним HTML." if site_status == "ok" else str(site_details.get("reason", "Сайт недоступний"))
+    api_message = "API повертає повний графік на поточну дату." if api_status == "ok" else str(api_details.get("reason", "API недоступний"))
+    publication_problem = publish_status not in ("success", "published", "no-change", "not-run")
+    if telegram_api_status == "not-configured":
+        public_telegram_status = "not-configured"
+        telegram_message = "Перевірка бота не налаштована: відсутній токен."
+    elif telegram_api_status != "ok" or publication_problem:
+        public_telegram_status = "error"
+        telegram_message = str(telegram_api_details.get("reason") or f"Результат публікації: {publish_status}")
+    else:
+        public_telegram_status = "ok"
+        if publish_status == "published":
+            telegram_message = "Бот доступний, повідомлення успішно опубліковано."
+        elif publish_status == "no-change":
+            telegram_message = "Бот доступний, нових змін для публікації не було."
+        elif publish_status == "not-run":
+            telegram_message = "Bot API доступний; публікація не запускалася в цьому циклі."
+        else:
+            telegram_message = "Bot API доступний, останній процес публікації завершився успішно."
+
+    previous_services = state.get("services", {}) if isinstance(state.get("services"), dict) else {}
+    services = {
+        "scheduleSource": {"status": source_status, "message": source_message, "checkedAt": checked_at,
+                           "lastSuccessAt": checked_at if source_status == "ok" else previous_services.get("scheduleSource", {}).get("lastSuccessAt")},
+        "website": {"status": site_status, "message": website_message, "checkedAt": checked_at,
+                    "lastSuccessAt": checked_at if site_status == "ok" else previous_services.get("website", {}).get("lastSuccessAt")},
+        "api": {"status": api_status, "message": api_message, "checkedAt": checked_at,
+                "lastSuccessAt": checked_at if api_status == "ok" else previous_services.get("api", {}).get("lastSuccessAt")},
+        "telegram": {"status": public_telegram_status, "message": telegram_message, "checkedAt": checked_at,
+                     "lastSuccessAt": checked_at if public_telegram_status == "ok" else previous_services.get("telegram", {}).get("lastSuccessAt")},
+    }
+    last_errors = state.get("lastErrors", [])
+    if not isinstance(last_errors, list):
+        last_errors = []
+    current_errors = [
+        {"service": "Джерело графіків", "message": source_message, "at": checked_at} for _ in [0] if source_status != "ok"
+    ] + [
+        {"service": "Вебсайт", "message": website_message, "at": checked_at} for _ in [0] if site_status != "ok"
+    ] + [
+        {"service": "API", "message": api_message, "at": checked_at} for _ in [0] if api_status != "ok"
+    ] + [
+        {"service": "Telegram", "message": telegram_message, "at": checked_at} for _ in [0] if public_telegram_status == "error"
+    ]
+    for item in current_errors:
+        duplicate = any(
+            previous.get("service") == item["service"] and previous.get("message") == item["message"]
+            for previous in last_errors[-5:] if isinstance(previous, dict)
+        )
+        if not duplicate:
+            last_errors.append(item)
+    state.update({
+        "checkedAt": checked_at,
+        "services": services,
+        "lastErrors": last_errors[-20:],
+        "lastSuccessfulScheduleCheckAt": checked_at if source_status == "ok" else state.get("lastSuccessfulScheduleCheckAt"),
+        "lastSuccessfulScheduleDataAt": schedule_details.get("fetchedAt") if source_status == "ok" else state.get("lastSuccessfulScheduleDataAt"),
+        "lastSuccessfulApiAt": checked_at if api_status == "ok" else state.get("lastSuccessfulApiAt"),
+        "lastSuccessfulTelegramAt": checked_at if public_telegram_status == "ok" else state.get("lastSuccessfulTelegramAt"),
+    })
+    if all(item["status"] == "ok" for item in services.values()):
+        state["lastSuccessfulCheckAt"] = checked_at
+    save_state(state)
 
     if not issues:
         if database_status == "not-configured":
@@ -200,7 +334,6 @@ def main():
         return
 
     message = "Виявлено проблеми:\n" + "\n".join(issues)
-    state = load_state()
     fingerprint = "|".join(issues)
     previous = state.get("lastAlertAt")
     previous_fp = state.get("lastAlertFingerprint")
