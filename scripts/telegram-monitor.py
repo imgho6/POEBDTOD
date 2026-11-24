@@ -2,6 +2,7 @@
 """Post-run health checks for schedule publishing and editorial Telegram tasks."""
 import json
 import os
+import urllib.error
 import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -145,6 +146,10 @@ def check_api():
                 ):
                     return "error", {"reason": f"API повернув неповну підчергу {queue}"}
             return "ok", {"httpStatus": response.status, "date": today, "queues": len(expected)}
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return "warning", {"reason": "API відповідає, але графік на сьогодні ще не опубліковано", "httpStatus": 404}
+        return "error", {"reason": f"API HTTP {error.code}"}
     except Exception as error:
         return "error", {"reason": f"API недоступний: {type(error).__name__}"}
 
@@ -232,11 +237,14 @@ def main():
         record_error("website", reason, site_details)
 
     api_status, api_details = check_api()
-    record_monitor_check("website", "API графіків", api_status, details=api_details)
-    if api_status != "ok":
+    record_monitor_check("api", "API графіків", api_status, details=api_details)
+    if api_status == "error":
         reason = str(api_details.get("reason", "API недоступний"))
         issues.append("• API: " + reason)
         record_error("api", reason, api_details)
+    elif api_status == "warning":
+        reason = str(api_details.get("reason", "Графік на сьогодні ще не опубліковано"))
+        record_error("api", reason, api_details, "warning")
 
     telegram_api_status, telegram_api_details = check_telegram_api()
     record_monitor_check("telegram_bot", "доступність Telegram Bot API", telegram_api_status, details=telegram_api_details)
