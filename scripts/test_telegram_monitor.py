@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -68,3 +69,51 @@ class WebsiteMonitorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ApiMonitorTests(unittest.TestCase):
+    def test_api_accepts_complete_schedule_payload(self):
+        today = monitor.now().date().isoformat()
+        queues = {
+            f"{group}.{sub}": ["on"] * 48
+            for group in range(1, 7)
+            for sub in (1, 2)
+        }
+        response = FakeResponse(
+            body=json.dumps({"date": today, "queues": queues}).encode("utf-8"),
+            content_type="application/json",
+            url=f"https://prosvitlo.pp.ua/api/schedule?date={today}",
+        )
+        with patch.object(monitor.urllib.request, "urlopen", return_value=response):
+            status, details = monitor.check_api()
+        self.assertEqual(status, "ok")
+        self.assertEqual(details["queues"], 12)
+
+    def test_api_reports_unpublished_schedule_as_warning(self):
+        error = HTTPError(
+            "https://prosvitlo.pp.ua/api/schedule", 404, "Not Found", {}, None
+        )
+        with patch.object(monitor.urllib.request, "urlopen", side_effect=error):
+            status, details = monitor.check_api()
+        self.assertEqual(status, "warning")
+        self.assertIn("ще не опубліковано", details["reason"])
+
+    def test_telegram_api_validates_bot_token_and_identity(self):
+        payload = {"ok": True, "result": {"id": 123, "username": "prosvitlo_test_bot"}}
+        response = FakeResponse(
+            body=json.dumps(payload).encode("utf-8"),
+            content_type="application/json",
+            url="https://api.telegram.org/bot<TOKEN>/getMe",
+        )
+        with patch.object(monitor, "TOKEN", "test-token"), patch.object(
+            monitor.urllib.request, "urlopen", return_value=response
+        ):
+            status, details = monitor.check_telegram_api()
+        self.assertEqual(status, "ok")
+        self.assertEqual(details["botUsername"], "prosvitlo_test_bot")
+
+    def test_telegram_api_marks_missing_token_as_not_configured(self):
+        with patch.object(monitor, "TOKEN", ""):
+            status, details = monitor.check_telegram_api()
+        self.assertEqual(status, "not-configured")
+        self.assertIn("не налаштовано", details["reason"])

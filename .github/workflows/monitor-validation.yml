@@ -1,0 +1,32 @@
+name: Validate ProSvitlo monitor
+
+on:
+  push:
+    branches:
+      - feature/prosvitlo-monitor-status
+    paths:
+      - "scripts/telegram-monitor.py"
+      - "scripts/test_telegram_monitor.py"
+      - ".github/workflows/monitor-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  monitor-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile monitor and run tests
+        run: |
+          python -m py_compile scripts/telegram-monitor.py scripts/test_telegram_monitor.py
+          python -m unittest discover -s scripts -p 'test_telegram_monitor.py' -v
