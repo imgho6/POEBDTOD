@@ -16,6 +16,7 @@ on:
       - scripts/telegram-admin.py
       - scripts/update-schedules.mjs
       - scripts/test_telegram_editorial.py
+      - scripts/test_telegram_monitor.py
       - scripts/test_telegram_schedules.py
   workflow_dispatch:
 
