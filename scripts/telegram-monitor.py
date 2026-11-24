@@ -101,14 +101,24 @@ def check_schedule():
 def check_site():
     try:
         request = urllib.request.Request(
-            "https://svitlo-ua.vercel.app/poltava",
+            "https://prosvitlo.pp.ua/poltava",
             headers={"User-Agent": "PoltavaLightMonitor/1.0"},
         )
         with urllib.request.urlopen(request, timeout=15) as response:
-            body = response.read(300_000).decode("utf-8", errors="replace")
-            if response.status != 200 or "Світло.ua" not in body:
-                return "error", {"httpStatus": response.status, "titleFound": "Світло.ua" in body}
-            return "ok", {"httpStatus": response.status}
+            body = response.read(300_000)
+            content_type = response.headers.get("Content-Type", "").lower()
+            details = {
+                "httpStatus": response.status,
+                "url": response.geturl(),
+                "contentType": content_type,
+            }
+            if not 200 <= response.status < 300:
+                return "error", {**details, "reason": f"HTTP статус {response.status}"}
+            if "text/html" not in content_type:
+                return "error", {**details, "reason": "Сайт повернув відповідь не у форматі HTML"}
+            if not body.strip():
+                return "error", {**details, "reason": "Сайт повернув порожню HTML-сторінку"}
+            return "ok", details
     except Exception as error:
         return "error", {"reason": str(error)[:500]}
 
