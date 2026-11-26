@@ -1,6 +1,6 @@
 {
   "date": "2026-11-26",
-  "fetchedAt": "2026-11-26T03:35:01.496Z",
+  "fetchedAt": "2026-11-26T19:02:14.122Z",
   "queues": {
     "1.1": [
       "on",
@@ -46,9 +46,9 @@
       "off",
       "off",
       "off",
-      "off",
-      "off",
       "switching",
+      "on",
+      "on",
       "on",
       "on"
     ],
@@ -97,9 +97,9 @@
       "off",
       "off",
       "off",
-      "off",
-      "off",
       "switching",
+      "on",
+      "on",
       "on"
     ],
     "2.1": [
@@ -148,9 +148,9 @@
       "off",
       "off",
       "off",
-      "off",
-      "off",
-      "switching"
+      "switching",
+      "on",
+      "on"
     ],
     "2.2": [
       "on",
@@ -199,8 +199,8 @@
       "off",
       "off",
       "off",
-      "off",
-      "off"
+      "switching",
+      "on"
     ],
     "3.1": [
       "on",
@@ -250,7 +250,7 @@
       "off",
       "off",
       "off",
-      "off"
+      "switching"
     ],
     "3.2": [
       "on",
@@ -545,8 +545,8 @@
       "off",
       "off",
       "off",
-      "off",
       "switching",
+      "on",
       "on",
       "on",
       "on",
@@ -595,9 +595,9 @@
       "off",
       "off",
       "off",
-      "off",
-      "off",
       "switching",
+      "on",
+      "on",
       "on",
       "on",
       "on"
