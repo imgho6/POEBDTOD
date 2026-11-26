@@ -1,6 +1,6 @@
 {
   "date": "2026-11-26",
-  "fetchedAt": "2026-11-26T19:37:56.237Z",
+  "fetchedAt": "2026-11-26T21:04:43.382Z",
   "queues": {
     "1.1": [
       "on",
@@ -249,8 +249,8 @@
       "on",
       "off",
       "off",
-      "off",
-      "switching"
+      "switching",
+      "on"
     ],
     "3.2": [
       "on",
@@ -299,8 +299,8 @@
       "on",
       "on",
       "off",
-      "off",
-      "off"
+      "switching",
+      "on"
     ],
     "4.1": [
       "on",
@@ -349,8 +349,8 @@
       "on",
       "on",
       "on",
-      "off",
-      "off"
+      "on",
+      "on"
     ],
     "4.2": [
       "on",
@@ -400,7 +400,7 @@
       "on",
       "on",
       "on",
-      "off"
+      "on"
     ],
     "5.1": [
       "switching",
