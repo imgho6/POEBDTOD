@@ -1,6 +1,6 @@
 {
   "date": "2026-11-27",
-  "fetchedAt": "2026-11-27T17:41:42.624Z",
+  "fetchedAt": "2026-11-27T18:37:39.571Z",
   "queues": {
     "1.1": [
       "on",
@@ -47,10 +47,10 @@
       "on",
       "off",
       "off",
-      "off",
-      "off",
-      "off",
-      "switching"
+      "switching",
+      "on",
+      "on",
+      "on"
     ],
     "1.2": [
       "on",
@@ -98,9 +98,9 @@
       "on",
       "off",
       "off",
-      "off",
-      "off",
-      "off"
+      "switching",
+      "on",
+      "on"
     ],
     "2.1": [
       "on",
@@ -149,8 +149,8 @@
       "on",
       "off",
       "off",
-      "off",
-      "off"
+      "switching",
+      "on"
     ],
     "2.2": [
       "on",
@@ -200,7 +200,7 @@
       "on",
       "off",
       "off",
-      "off"
+      "switching"
     ],
     "3.1": [
       "on",
@@ -394,8 +394,8 @@
       "off",
       "off",
       "off",
-      "off",
       "switching",
+      "on",
       "on",
       "on",
       "on",
@@ -444,9 +444,9 @@
       "off",
       "off",
       "off",
-      "off",
-      "off",
       "switching",
+      "on",
+      "on",
       "on",
       "on",
       "on",
@@ -494,10 +494,10 @@
       "on",
       "off",
       "off",
-      "off",
-      "off",
-      "off",
       "switching",
+      "on",
+      "on",
+      "on",
       "on",
       "on",
       "on"
@@ -545,10 +545,10 @@
       "on",
       "off",
       "off",
-      "off",
-      "off",
-      "off",
       "switching",
+      "on",
+      "on",
+      "on",
       "on",
       "on"
     ],
@@ -596,10 +596,10 @@
       "on",
       "off",
       "off",
-      "off",
-      "off",
-      "off",
       "switching",
+      "on",
+      "on",
+      "on",
       "on"
     ]
   },
